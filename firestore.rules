@@ -1,0 +1,271 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Global default-deny safety net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Core identity and path validation helpers
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isOwner(userId) {
+      return isVerifiedUser() && request.auth.uid == userId;
+    }
+
+    function inviteIdForEmail(email) {
+      return email.lower().replace('[^a-z0-9_\\-]', '_');
+    }
+
+    function hasValidAdminInvite() {
+      return request.auth.token.email is string &&
+        request.auth.token.email.size() >= 3 &&
+        request.auth.token.email.size() <= 128 &&
+        exists(/databases/$(database)/documents/adminInvites/$(inviteIdForEmail(request.auth.token.email))) &&
+        get(/databases/$(database)/documents/adminInvites/$(inviteIdForEmail(request.auth.token.email))).data.email == request.auth.token.email.lower();
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        (request.auth.token.email is string && request.auth.token.email.lower() == 'yasmineye.cgtec@gmail.com') ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid)) ||
+        hasValidAdminInvite()
+      );
+    }
+
+    // Entity validation helpers
+    function isValidAdminUser(data) {
+      return data.keys().hasAll(['uid', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'note', 'createdAt']) &&
+        isValidId(data.uid) &&
+        (!('note' in data) || (data.note is string && data.note.size() <= 120)) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidAdminInvite(data, inviteId) {
+      return data.keys().hasAll(['email', 'invitedBy', 'createdAt']) &&
+        data.keys().hasOnly(['email', 'note', 'invitedBy', 'createdAt']) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 128 &&
+        data.email == data.email.lower() &&
+        inviteId == inviteIdForEmail(data.email) &&
+        (!('note' in data) || (data.note is string && data.note.size() <= 120)) &&
+        isValidId(data.invitedBy) &&
+        data.createdAt is timestamp;
+    }
+
+    function isValidUserProfile(data) {
+      return data.keys().hasAll(['uid', 'email', 'displayName', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'displayName', 'department', 'office', 'updatedAt']) &&
+        isValidId(data.uid) &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 200 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 60 &&
+        (!('department' in data) || (data.department is string && data.department.size() <= 60)) &&
+        (!('office' in data) || data.office in ['taipei', 'hsinchu']) &&
+        data.updatedAt is timestamp;
+    }
+
+    function isValidStickerNameArray(arr) {
+      return arr is list && arr.size() == 7 &&
+        arr[0] is string && arr[0].size() >= 1 && arr[0].size() <= 60 &&
+        arr[1] is string && arr[1].size() >= 1 && arr[1].size() <= 60 &&
+        arr[2] is string && arr[2].size() >= 1 && arr[2].size() <= 60 &&
+        arr[3] is string && arr[3].size() >= 1 && arr[3].size() <= 60 &&
+        arr[4] is string && arr[4].size() >= 1 && arr[4].size() <= 60 &&
+        arr[5] is string && arr[5].size() >= 1 && arr[5].size() <= 60 &&
+        arr[6] is string && arr[6].size() >= 1 && arr[6].size() <= 60;
+    }
+
+    function isValidStickerHintArray(arr) {
+      return arr is list && arr.size() == 7 &&
+        arr[0] is string && arr[0].size() <= 120 &&
+        arr[1] is string && arr[1].size() <= 120 &&
+        arr[2] is string && arr[2].size() <= 120 &&
+        arr[3] is string && arr[3].size() <= 120 &&
+        arr[4] is string && arr[4].size() <= 120 &&
+        arr[5] is string && arr[5].size() <= 120 &&
+        arr[6] is string && arr[6].size() <= 120;
+    }
+
+    function isValidEventConfig(data) {
+      return data.keys().hasAll([
+          'title', 'subtitle', 'basePoints', 'topN', 'topNBonus',
+          'stickerNames', 'stickerHints', 'updatedAt', 'updatedBy'
+        ]) &&
+        data.keys().hasOnly([
+          'title', 'subtitle', 'basePoints', 'topN', 'topNBonus',
+          'stickerNames', 'stickerHints', 'stickerHintsTaipei', 'stickerHintsHsinchu',
+          'updatedAt', 'updatedBy'
+        ]) &&
+        data.title is string && data.title.size() >= 1 && data.title.size() <= 80 &&
+        data.subtitle is string && data.subtitle.size() <= 200 &&
+        data.basePoints is int && data.basePoints >= 0 && data.basePoints <= 1000 &&
+        data.topN is int && data.topN >= 1 && data.topN <= 50 &&
+        data.topNBonus is int && data.topNBonus >= 0 && data.topNBonus <= 2000 &&
+        isValidStickerNameArray(data.stickerNames) &&
+        isValidStickerHintArray(data.stickerHints) &&
+        (!('stickerHintsTaipei' in data) || isValidStickerHintArray(data.stickerHintsTaipei)) &&
+        (!('stickerHintsHsinchu' in data) || isValidStickerHintArray(data.stickerHintsHsinchu)) &&
+        data.updatedAt is timestamp &&
+        isValidId(data.updatedBy);
+    }
+
+    function isValidSubmission(data) {
+      return data.keys().hasAll([
+          'uid', 'authorName', 'department', 'stickerDay',
+          'imageDataUrl', 'note', 'status', 'isProxy', 'createdAt', 'updatedAt'
+        ]) &&
+        data.keys().hasOnly([
+          'uid', 'authorName', 'department', 'office', 'stickerDay',
+          'imageDataUrl', 'note', 'status', 'isProxy', 'createdAt', 'updatedAt'
+        ]) &&
+        isValidId(data.uid) &&
+        data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 60 &&
+        data.department is string && data.department.size() <= 60 &&
+        (!('office' in data) || data.office in ['taipei', 'hsinchu']) &&
+        data.stickerDay is int && data.stickerDay >= 1 && data.stickerDay <= 7 &&
+        data.imageDataUrl is string && data.imageDataUrl.size() >= 30 && data.imageDataUrl.size() <= 450000 &&
+        data.imageDataUrl.split(',').size() == 2 &&
+        data.imageDataUrl.split(',')[0] in [
+          'data:image/jpeg;base64',
+          'data:image/jpg;base64',
+          'data:image/png;base64',
+          'data:image/webp;base64'
+        ] &&
+        data.note is string && data.note.size() <= 200 &&
+        data.status in ['valid', 'rejected'] &&
+        data.isProxy is bool &&
+        data.createdAt is timestamp &&
+        data.updatedAt is timestamp;
+    }
+
+    // Collection: /admins/{adminId}
+    match /admins/{adminId} {
+      allow get: if isVerifiedUser() && isValidId(adminId) && (request.auth.uid == adminId || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(adminId) && isValidAdminUser(incoming()) &&
+        incoming().uid == adminId && incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(adminId) && isValidAdminUser(incoming()) &&
+        incoming().uid == existing().uid && incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['note']);
+      allow delete: if isAdmin() && isValidId(adminId);
+    }
+
+    // Collection: /adminInvites/{inviteId}
+    match /adminInvites/{inviteId} {
+      allow get: if isVerifiedUser() && isValidId(inviteId) && (
+        (request.auth.token.email is string && inviteId == inviteIdForEmail(request.auth.token.email)) ||
+        isAdmin()
+      );
+      allow list: if isAdmin();
+      allow create: if isAdmin() && isValidId(inviteId) && isValidAdminInvite(incoming(), inviteId) &&
+        incoming().invitedBy == request.auth.uid && incoming().createdAt == request.time;
+      allow update: if isAdmin() && isValidId(inviteId) && isValidAdminInvite(incoming(), inviteId) &&
+        incoming().email == existing().email && incoming().invitedBy == existing().invitedBy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['note']);
+      allow delete: if isAdmin() && isValidId(inviteId);
+    }
+
+    // Collection: /users/{userId} (PII Isolated)
+    match /users/{userId} {
+      allow get: if isVerifiedUser() && isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isAdmin();
+      allow create: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().updatedAt == request.time;
+      allow update: if isOwner(userId) && isValidId(userId) && isValidUserProfile(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'department', 'office', 'email', 'updatedAt']) &&
+        incoming().updatedAt == request.time;
+      allow delete: if isAdmin() && isValidId(userId);
+    }
+
+    // Collection: /eventConfig/{configId}
+    match /eventConfig/{configId} {
+      allow get: if isValidId(configId) && configId == 'main';
+      allow list: if false;
+      allow create: if isAdmin() && isValidId(configId) && configId == 'main' &&
+        isValidEventConfig(incoming()) &&
+        incoming().updatedAt == request.time &&
+        incoming().updatedBy == request.auth.uid;
+      allow update: if isAdmin() && isValidId(configId) && configId == 'main' &&
+        isValidEventConfig(incoming()) &&
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'title', 'subtitle', 'basePoints', 'topN', 'topNBonus',
+          'stickerNames', 'stickerHints', 'stickerHintsTaipei', 'stickerHintsHsinchu',
+          'updatedAt', 'updatedBy'
+        ]) &&
+        incoming().updatedAt == request.time &&
+        incoming().updatedBy == request.auth.uid;
+      allow delete: if false;
+    }
+
+    // Collection: /submissions/{submissionId}
+    match /submissions/{submissionId} {
+      allow get: if isVerifiedUser() && isValidId(submissionId) && (
+        existing().status == 'valid' ||
+        existing().uid == request.auth.uid ||
+        isAdmin()
+      );
+      allow list: if isVerifiedUser() && (
+        resource.data.status == 'valid' ||
+        resource.data.uid == request.auth.uid ||
+        isAdmin()
+      );
+      allow create: if isVerifiedUser() && isValidId(submissionId) && isValidSubmission(incoming()) &&
+        ('office' in incoming()) &&
+        incoming().uid == request.auth.uid &&
+        incoming().status == 'valid' &&
+        incoming().createdAt == request.time &&
+        incoming().updatedAt == request.time &&
+        (
+          (!incoming().isProxy && submissionId == (request.auth.uid + '_day' + string(incoming().stickerDay))) ||
+          (incoming().isProxy && isAdmin())
+        );
+      allow update: if isVerifiedUser() && isValidId(submissionId) && isValidSubmission(incoming()) &&
+        incoming().uid == existing().uid &&
+        incoming().stickerDay == existing().stickerDay &&
+        incoming().isProxy == existing().isProxy &&
+        incoming().createdAt == existing().createdAt &&
+        incoming().updatedAt == request.time &&
+        (
+          (
+            isAdmin() &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'authorName', 'department', 'office', 'imageDataUrl', 'note', 'updatedAt'
+            ])
+          ) ||
+          (
+            existing().uid == request.auth.uid &&
+            existing().status == 'valid' &&
+            incoming().status == existing().status &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'authorName', 'department', 'office', 'imageDataUrl', 'note', 'updatedAt'
+            ])
+          )
+        );
+      allow delete: if isVerifiedUser() && isValidId(submissionId) && (
+        existing().uid == request.auth.uid || isAdmin()
+      );
+    }
+  }
+}

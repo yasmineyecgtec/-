@@ -1,0 +1,224 @@
+{
+  "entities": {
+    "AdminUser": {
+      "title": "AdminUser",
+      "description": "Explicitly granted event administrator record keyed by Firebase Auth UID.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the administrator."
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Optional note describing admin role."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when admin access was granted."
+        }
+      },
+      "required": ["uid", "createdAt"]
+    },
+    "AdminInvite": {
+      "title": "AdminInvite",
+      "description": "Email-based co-organizer authorization keyed by normalized email identifier.",
+      "type": "object",
+      "properties": {
+        "email": {
+          "type": "string",
+          "minLength": 3,
+          "maxLength": 128,
+          "description": "Lowercase Google email address of the authorized co-organizer."
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 120,
+          "description": "Optional label or office responsibility note for the co-organizer."
+        },
+        "invitedBy": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$",
+          "description": "Firebase Auth UID of the admin who added this co-organizer."
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time",
+          "description": "Server timestamp when co-organizer access was granted."
+        }
+      },
+      "required": ["email", "invitedBy", "createdAt"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Private employee profile containing email PII, readable only by owner or admin.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "email": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "displayName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "department": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "office": {
+          "type": "string",
+          "enum": ["taipei", "hsinchu"],
+          "description": "Office location of the participant (Taipei or Hsinchu)."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "email", "displayName", "updatedAt"]
+    },
+    "EventConfig": {
+      "title": "EventConfig",
+      "description": "Global scoring rules and 7-sticker campaign metadata managed by event organizers.",
+      "type": "object",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 80
+        },
+        "subtitle": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "basePoints": {
+          "type": "number",
+          "description": "Base points awarded for finding and uploading each sticker (0 to 1000)."
+        },
+        "topN": {
+          "type": "number",
+          "description": "Number of fastest uploaders per sticker eligible for speed bonus (1 to 50)."
+        },
+        "topNBonus": {
+          "type": "number",
+          "description": "Extra bonus points awarded to each of the fastest Top N uploaders per sticker (0 to 2000)."
+        },
+        "stickerNames": {
+          "type": "array",
+          "description": "Ordered list of 7 gingerbread sticker names."
+        },
+        "stickerHints": {
+          "type": "array",
+          "description": "Ordered list of 7 optional clue hints (default / Taipei)."
+        },
+        "stickerHintsTaipei": {
+          "type": "array",
+          "description": "Ordered list of 7 clue hints for Taipei office."
+        },
+        "stickerHintsHsinchu": {
+          "type": "array",
+          "description": "Ordered list of 7 clue hints for Hsinchu office."
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedBy": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        }
+      },
+      "required": ["title", "subtitle", "basePoints", "topN", "topNBonus", "stickerNames", "stickerHints", "updatedAt", "updatedBy"]
+    },
+    "StickerSubmission": {
+      "title": "StickerSubmission",
+      "description": "Publicly visible event entry for one of the 7 gingerbread stickers, without PII.",
+      "type": "object",
+      "properties": {
+        "uid": {
+          "type": "string",
+          "maxLength": 128,
+          "pattern": "^[a-zA-Z0-9_\\-]+$"
+        },
+        "authorName": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 60
+        },
+        "department": {
+          "type": "string",
+          "maxLength": 60
+        },
+        "office": {
+          "type": "string",
+          "enum": ["taipei", "hsinchu"],
+          "description": "Office location track for scoring and prize awards."
+        },
+        "stickerDay": {
+          "type": "number",
+          "description": "Integer between 1 and 7 representing which gingerbread sticker was found."
+        },
+        "imageDataUrl": {
+          "type": "string",
+          "minLength": 30,
+          "maxLength": 450000
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "status": {
+          "type": "string",
+          "enum": ["valid", "rejected"]
+        },
+        "isProxy": {
+          "type": "boolean"
+        },
+        "createdAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "updatedAt": {
+          "type": "string",
+          "format": "date-time"
+        }
+      },
+      "required": ["uid", "authorName", "department", "stickerDay", "imageDataUrl", "note", "status", "isProxy", "createdAt", "updatedAt"]
+    }
+  },
+  "firestore": {
+    "/admins/{adminId}": {
+      "schema": { "$ref": "#/entities/AdminUser" },
+      "description": "Registry of additional event organizers."
+    },
+    "/adminInvites/{inviteId}": {
+      "schema": { "$ref": "#/entities/AdminInvite" },
+      "description": "Email-based co-organizer invitations for helpers before or after first login."
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Private employee profile (contains email PII, owner/admin only)."
+    },
+    "/eventConfig/{configId}": {
+      "schema": { "$ref": "#/entities/EventConfig" },
+      "description": "Event scoring configuration and 7-sticker titles/clues (doc ID: main)."
+    },
+    "/submissions/{submissionId}": {
+      "schema": { "$ref": "#/entities/StickerSubmission" },
+      "description": "Daily gingerbread sticker photo uploads and tagged colleague names."
+    }
+  }
+}

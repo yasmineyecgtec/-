@@ -1,0 +1,6 @@
+{
+  "name": "聖誕薑餅人尋寶賽",
+  "description": "公司聖誕節找薑餅人貼紙活動平台：每日打卡上傳保存照片、標註姓名，自動統計最快回傳前10名加分累積與總分排行榜。",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

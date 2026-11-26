@@ -18,6 +18,7 @@ export const OFFICE_SHORT_LABELS: Record<OfficeId, string> = {
 export const MAX_AUTHOR_NAME_LENGTH = 60;
 export const MAX_DEPARTMENT_LENGTH = 60;
 export const MAX_NOTE_LENGTH = 200;
+export const MAX_REJECTION_REASON_LENGTH = 200;
 export const MAX_IMAGE_DATA_URL_LENGTH = 450000;
 export const MAX_TITLE_LENGTH = 80;
 export const MAX_SUBTITLE_LENGTH = 200;
@@ -41,6 +42,7 @@ export interface EventConfig {
   stickerHints: string[];
   stickerHintsTaipei?: string[];
   stickerHintsHsinchu?: string[];
+  eventStartDate?: string;
   updatedAt?: Timestamp | null;
   updatedBy?: string;
 }
@@ -52,6 +54,7 @@ export const DEFAULT_EVENT_CONFIG: EventConfig = {
   basePoints: 50,
   topN: 10,
   topNBonus: 100,
+  eventStartDate: '',
   stickerNames: [
     'Day 1 · 微笑領結薑餅人',
     'Day 2 · 拐杖糖果薑餅人',
@@ -100,6 +103,7 @@ export interface StickerSubmission {
   imageDataUrl: string;
   note: string;
   status: 'valid' | 'rejected';
+  rejectionReason?: string;
   isProxy: boolean;
   createdAt: Timestamp | null;
   updatedAt: Timestamp | null;

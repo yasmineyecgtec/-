@@ -1,9 +1,10 @@
 import React, { useEffect, useState } from 'react';
-import { ImagePlus, Upload, X } from 'lucide-react';
+import { AlertTriangle, ImagePlus, MessageSquareHeart, Upload, X } from 'lucide-react';
 import {
   EventConfig,
   MAX_AUTHOR_NAME_LENGTH,
   MAX_IMAGE_DATA_URL_LENGTH,
+  MAX_NOTE_LENGTH,
   OFFICE_LABELS,
   OfficeId,
   StickerSubmission,
@@ -19,6 +20,8 @@ interface SubmissionModalProps {
   defaultDepartment: string;
   defaultOffice: OfficeId;
   config: EventConfig;
+  mySubmissionsByDay?: Record<number, StickerSubmission>;
+  myRejectedByDay?: Record<number, StickerSubmission>;
   onClose: () => void;
   onSubmit: (payload: {
     stickerDay: number;
@@ -27,6 +30,7 @@ interface SubmissionModalProps {
     office: OfficeId;
     note: string;
     imageDataUrl: string;
+    photoChanged: boolean;
     isProxy: boolean;
     editingId: string | null;
   }) => Promise<void>;
@@ -40,31 +44,85 @@ export function SubmissionModal({
   defaultDepartment,
   defaultOffice,
   config,
+  mySubmissionsByDay = {},
+  myRejectedByDay = {},
   onClose,
   onSubmit,
 }: SubmissionModalProps) {
   const [stickerDay, setStickerDay] = useState(initialDay);
+  const [note, setNote] = useState('');
   const [imageDataUrl, setImageDataUrl] = useState('');
+  const [photoChanged, setPhotoChanged] = useState(false);
   const [imageInfo, setImageInfo] = useState('');
   const [compressing, setCompressing] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const activeExisting: StickerSubmission | null =
+    existingSubmission ??
+    mySubmissionsByDay[stickerDay] ??
+    myRejectedByDay[stickerDay] ??
+    null;
+
   useEffect(() => {
     if (!isOpen) return;
     setError(null);
-    if (existingSubmission) {
-      setStickerDay(existingSubmission.stickerDay);
-      setImageDataUrl(existingSubmission.imageDataUrl);
-      setImageInfo('已載入目前圖片（可選擇新照片更換）');
+    const initialTarget =
+      existingSubmission ??
+      mySubmissionsByDay[initialDay] ??
+      myRejectedByDay[initialDay] ??
+      null;
+    if (initialTarget) {
+      setStickerDay(initialTarget.stickerDay);
+      setNote(initialTarget.note || '');
+      if (initialTarget.status === 'rejected') {
+        setImageDataUrl('');
+        setPhotoChanged(false);
+        setImageInfo('');
+      } else {
+        setImageDataUrl(initialTarget.imageDataUrl);
+        setPhotoChanged(false);
+        setImageInfo('目前保留原照片（點擊此區可更換新照片）');
+      }
     } else {
       setStickerDay(initialDay);
+      setNote('');
       setImageDataUrl('');
+      setPhotoChanged(true);
       setImageInfo('');
     }
   }, [isOpen, initialDay, existingSubmission]);
 
   if (!isOpen) return null;
+
+  const isRejectedResubmit = activeExisting?.status === 'rejected';
+  const isValidEdit = activeExisting?.status === 'valid';
+
+  const handleSelectDay = (day: number) => {
+    if (existingSubmission) return;
+    setError(null);
+    setStickerDay(day);
+    const target = mySubmissionsByDay[day] ?? myRejectedByDay[day] ?? null;
+    if (target) {
+      setNote(target.note || '');
+      if (target.status === 'rejected') {
+        if (!photoChanged) {
+          setImageDataUrl('');
+          setImageInfo('');
+        }
+      } else if (!photoChanged || !imageDataUrl) {
+        setImageDataUrl(target.imageDataUrl);
+        setPhotoChanged(false);
+        setImageInfo('目前保留原照片（點擊此區可更換新照片）');
+      }
+    } else {
+      if (!photoChanged) {
+        setImageDataUrl('');
+        setImageInfo('');
+      }
+      setPhotoChanged(true);
+    }
+  };
 
   const handleFileChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -74,10 +132,11 @@ export function SubmissionModal({
     try {
       const result = await compressImageFile(file);
       setImageDataUrl(result.dataUrl);
+      setPhotoChanged(true);
       setImageInfo(
-        `已壓縮最佳化：${result.width}×${result.height}px · 約 ${Math.round(
+        `已選取新照片（${result.width}×${result.height}px · 約 ${Math.round(
           result.approxBytes / 1024
-        )} KB`
+        )} KB）`
       );
     } catch (err) {
       setError(err instanceof Error ? err.message : '圖片處理失敗');
@@ -92,9 +151,18 @@ export function SubmissionModal({
 
     const trimmedName = defaultAuthorName.trim();
     const trimmedDept = defaultDepartment.trim();
+    const trimmedNote = note.trim();
 
     if (!trimmedName || trimmedName.length > MAX_AUTHOR_NAME_LENGTH) {
       setError('請先至右上角「設定參賽名稱」完成參賽名稱與辦公室設定。');
+      return;
+    }
+    if (trimmedNote.length > MAX_NOTE_LENGTH) {
+      setError(`給同事的留言不可超過 ${MAX_NOTE_LENGTH} 字。`);
+      return;
+    }
+    if (isRejectedResubmit && !photoChanged) {
+      setError('原本的照片已被設為無效，請上傳一張新的有效貼紙照片。');
       return;
     }
     if (
@@ -113,10 +181,11 @@ export function SubmissionModal({
         authorName: trimmedName,
         department: trimmedDept,
         office: defaultOffice,
-        note: '',
+        note: trimmedNote,
         imageDataUrl,
+        photoChanged: Boolean(!activeExisting || photoChanged || isRejectedResubmit),
         isProxy: false,
-        editingId: existingSubmission ? existingSubmission.id : null,
+        editingId: activeExisting ? activeExisting.id : null,
       });
       onClose();
     } catch (err) {
@@ -141,7 +210,11 @@ export function SubmissionModal({
         <div className="px-6 py-4 border-b border-[#E5EAE7] bg-white flex items-center justify-between">
           <div>
             <h2 className="text-lg font-bold text-[#111827]">
-              {existingSubmission ? '更換打卡照片' : '上傳薑餅人貼紙照片'}
+              {isRejectedResubmit
+                ? '重新上傳有效貼紙照片'
+                : isValidEdit
+                  ? '更換打卡照片與留言'
+                  : '上傳薑餅人貼紙照片'}
             </h2>
             <p className="text-xs text-[#6B7280] mt-0.5">
               上傳時刻以伺服器紀錄為準，台北與新竹分開計算前 {config.topN} 名 +
@@ -165,6 +238,35 @@ export function SubmissionModal({
               className="p-3 rounded-lg bg-[#FEF2F2] border border-[#FECACA] text-sm text-[#991B1B]"
             >
               {error}
+            </div>
+          )}
+
+          {isRejectedResubmit && (
+            <div
+              role="alert"
+              className="p-3.5 rounded-lg bg-[#FEF2F2] border border-[#FECACA] text-xs text-[#991B1B] space-y-1"
+            >
+              <p className="font-bold">此張貼紙先前已被管理員設為無效：</p>
+              <p>
+                原因：{activeExisting?.rejectionReason || '未填寫原因'}
+              </p>
+              <p className="text-[#7F1D1D]">
+                請重新拍攝並上傳清楚的指定貼紙照片，送出後將以最新上傳時間重新計分。
+              </p>
+            </div>
+          )}
+
+          {isValidEdit && (
+            <div className="p-3.5 rounded-lg bg-[#FFFBEB] border border-[#FDE68A] text-xs text-[#92400E] flex items-start gap-2.5">
+              <AlertTriangle className="w-4 h-4 text-[#D97706] shrink-0 mt-0.5" />
+              <div className="space-y-0.5">
+                <p className="font-semibold">更換照片時間重新計算提醒</p>
+                <p>
+                  {photoChanged
+                    ? '您已選取新照片！送出後上傳時間將更新為「最新送出時間」，並重新計算當日名次與速報加碼。'
+                    : '若您更換新照片，上傳時間也會一併更新並重新計算當日名次（僅修改留言不會改變原打卡時間）。'}
+                </p>
+              </div>
             </div>
           )}
 
@@ -194,7 +296,7 @@ export function SubmissionModal({
                     key={day}
                     type="button"
                     disabled={locked}
-                    onClick={() => setStickerDay(day)}
+                    onClick={() => handleSelectDay(day)}
                     className={`py-2 px-1 text-xs font-mono-num font-bold rounded-lg border transition-colors ${
                       selected
                         ? 'bg-[#155E3A] text-white border-[#155E3A]'
@@ -231,7 +333,9 @@ export function SubmissionModal({
                     className="max-h-48 w-auto rounded-lg object-contain border border-[#E5EAE7] mb-2"
                   />
                   <span className="text-xs text-[#155E3A] font-semibold">
-                    {compressing ? '圖片壓縮處理中...' : imageInfo || '點擊可更換照片'}
+                    {compressing
+                      ? '圖片壓縮處理中...'
+                      : imageInfo || '點擊可更換照片'}
                   </span>
                 </div>
               ) : (
@@ -246,6 +350,31 @@ export function SubmissionModal({
                 </div>
               )}
             </label>
+          </div>
+
+          <div>
+            <label
+              htmlFor="colleague-note-input"
+              className="flex items-center gap-1.5 text-sm font-semibold text-[#111827] mb-1.5"
+            >
+              <MessageSquareHeart className="w-4 h-4 text-[#B91C1C]" />
+              <span>給同事的留言（選填）</span>
+            </label>
+            <textarea
+              id="colleague-note-input"
+              rows={2}
+              maxLength={MAX_NOTE_LENGTH}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+              placeholder="例如：祝大家聖誕快樂！這隻薑餅人超可愛～"
+              className="w-full px-3 py-2 text-sm text-[#111827] border border-[#D1DDD6] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155E3A] resize-none"
+            />
+            <div className="flex items-center justify-between text-[11px] text-[#6B7280] mt-1">
+              <span>留言會與照片一起顯示在「貼紙照片牆」（請勿劇透貼紙位置喔）</span>
+              <span className="font-mono-num">
+                {note.length}/{MAX_NOTE_LENGTH}
+              </span>
+            </div>
           </div>
 
           <div className="pt-2 flex items-center justify-end gap-3 border-t border-[#E5EAE7]">
@@ -265,9 +394,13 @@ export function SubmissionModal({
               <span>
                 {submitting
                   ? '儲存上傳中...'
-                  : existingSubmission
-                    ? '儲存更新'
-                    : '送出並計分'}
+                  : isRejectedResubmit
+                    ? '重新送出並計分'
+                    : isValidEdit
+                      ? photoChanged
+                        ? '確認更換並重算時間'
+                        : '儲存留言'
+                      : '送出並計分'}
               </span>
             </button>
           </div>

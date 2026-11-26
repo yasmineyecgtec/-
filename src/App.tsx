@@ -32,7 +32,10 @@ import {
   EventConfig,
   inviteIdForEmail,
   MAX_ADMIN_NOTE_LENGTH,
+  MAX_AUTHOR_NAME_LENGTH,
+  MAX_DEPARTMENT_LENGTH,
   MAX_INVITE_EMAIL_LENGTH,
+  MAX_REJECTION_REASON_LENGTH,
   OFFICE_LABELS,
   OfficeId,
   ScoredSubmission,
@@ -74,8 +77,10 @@ export default function App() {
   const [uploadModalDay, setUploadModalDay] = useState<number>(1);
   const [editingSubmission, setEditingSubmission] =
     useState<StickerSubmission | null>(null);
-  const [lightboxSubmission, setLightboxSubmission] =
-    useState<ScoredSubmission | null>(null);
+  const [lightboxState, setLightboxState] = useState<{
+    submission: ScoredSubmission;
+    allowUnblurred: boolean;
+  } | null>(null);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
 
   // Auth state observer
@@ -241,28 +246,87 @@ export default function App() {
 
     setLoadingData(true);
 
-    const submissionsPath = 'submissions';
-    const subQuery = isAdmin
-      ? collection(db, 'submissions')
-      : query(collection(db, 'submissions'), where('status', '==', 'valid'));
+    if (isAdmin) {
+      const unsubAll = onSnapshot(
+        collection(db, 'submissions'),
+        (snap) => {
+          const list: StickerSubmission[] = snap.docs.map((d) => ({
+            id: d.id,
+            ...(d.data() as Omit<StickerSubmission, 'id'>),
+          }));
+          setSubmissions(list);
+          setLoadingData(false);
+        },
+        (err) => {
+          handleFirestoreError(err, OperationType.LIST, 'submissions');
+        }
+      );
 
-    const unsubSubs = onSnapshot(
-      subQuery,
-      (snap) => {
-        const list: StickerSubmission[] = snap.docs.map((d) => ({
-          id: d.id,
-          ...(d.data() as Omit<StickerSubmission, 'id'>),
-        }));
-        setSubmissions(list);
+      return () => {
+        unsubAll();
+      };
+    }
+
+    let validMap = new Map<string, StickerSubmission>();
+    let myMap = new Map<string, StickerSubmission>();
+    let validLoaded = false;
+    let myLoaded = false;
+
+    const syncMerged = () => {
+      const merged = new Map<string, StickerSubmission>();
+      for (const [id, item] of validMap) {
+        merged.set(id, item);
+      }
+      for (const [id, item] of myMap) {
+        merged.set(id, item);
+      }
+      setSubmissions(Array.from(merged.values()));
+      if (validLoaded && myLoaded) {
         setLoadingData(false);
+      }
+    };
+
+    const unsubValid = onSnapshot(
+      query(collection(db, 'submissions'), where('status', '==', 'valid')),
+      (snap) => {
+        const nextMap = new Map<string, StickerSubmission>();
+        for (const d of snap.docs) {
+          nextMap.set(d.id, {
+            id: d.id,
+            ...(d.data() as Omit<StickerSubmission, 'id'>),
+          });
+        }
+        validMap = nextMap;
+        validLoaded = true;
+        syncMerged();
       },
       (err) => {
-        handleFirestoreError(err, OperationType.LIST, submissionsPath);
+        handleFirestoreError(err, OperationType.LIST, 'submissions');
+      }
+    );
+
+    const unsubMine = onSnapshot(
+      query(collection(db, 'submissions'), where('uid', '==', user.uid)),
+      (snap) => {
+        const nextMap = new Map<string, StickerSubmission>();
+        for (const d of snap.docs) {
+          nextMap.set(d.id, {
+            id: d.id,
+            ...(d.data() as Omit<StickerSubmission, 'id'>),
+          });
+        }
+        myMap = nextMap;
+        myLoaded = true;
+        syncMerged();
+      },
+      (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'submissions');
       }
     );
 
     return () => {
-      unsubSubs();
+      unsubValid();
+      unsubMine();
     };
   }, [authReady, user, isAdmin]);
 
@@ -332,7 +396,7 @@ export default function App() {
     [submissions, eventConfig]
   );
 
-  // Current user's own (non-proxy) submissions mapped by stickerDay (1..7)
+  // Current user's own (non-proxy) valid & rejected submissions mapped by stickerDay (1..7)
   const mySubmissionsByDay = useMemo(() => {
     const map: Record<number, ScoredSubmission> = {};
     if (!user) return map;
@@ -343,6 +407,17 @@ export default function App() {
     }
     return map;
   }, [allScoredSubmissions, user]);
+
+  const myRejectedByDay = useMemo(() => {
+    const map: Record<number, StickerSubmission> = {};
+    if (!user) return map;
+    for (const sub of submissions) {
+      if (sub.uid === user.uid && !sub.isProxy && sub.status === 'rejected') {
+        map[sub.stickerDay] = sub;
+      }
+    }
+    return map;
+  }, [submissions, user]);
 
   const defaultAuthorName =
     userProfile?.displayName ||
@@ -379,7 +454,11 @@ export default function App() {
     const nextDay =
       day ??
       ([1, 2, 3, 4, 5, 6, 7].find((d) => !mySubmissionsByDay[d]) || 1);
-    const matchedExisting = existing ?? mySubmissionsByDay[nextDay] ?? null;
+    const matchedExisting =
+      existing ??
+      mySubmissionsByDay[nextDay] ??
+      myRejectedByDay[nextDay] ??
+      null;
     setUploadModalDay(nextDay);
     setEditingSubmission(matchedExisting);
     setUploadModalOpen(true);
@@ -438,41 +517,83 @@ export default function App() {
     office: OfficeId;
     note: string;
     imageDataUrl: string;
+    photoChanged: boolean;
     isProxy: boolean;
     editingId: string | null;
   }) => {
     if (!user) return;
 
-    if (payload.editingId) {
-      const path = `submissions/${payload.editingId}`;
+    const safeAuthorName = (
+      payload.authorName ||
+      defaultAuthorName ||
+      user.email?.split('@')[0] ||
+      '同仁'
+    )
+      .trim()
+      .slice(0, MAX_AUTHOR_NAME_LENGTH);
+    const safeDepartment = (payload.department ?? defaultDepartment)
+      .trim()
+      .slice(0, MAX_DEPARTMENT_LENGTH);
+    const docId = payload.editingId || `${user.uid}_day${payload.stickerDay}`;
+    const path = `submissions/${docId}`;
+
+    let existingStatus: 'valid' | 'rejected' | null =
+      submissions.find((s) => s.id === docId)?.status ?? null;
+
+    if (!existingStatus) {
       try {
-        await updateDoc(doc(db, 'submissions', payload.editingId), {
-          authorName: defaultAuthorName,
-          department: defaultDepartment,
-          office: userOffice,
-          note: '',
-          imageDataUrl: payload.imageDataUrl,
-          updatedAt: serverTimestamp(),
-        });
+        const snap = await getDoc(doc(db, 'submissions', docId));
+        if (snap.exists()) {
+          const data = snap.data() as Partial<StickerSubmission>;
+          existingStatus = data.status === 'rejected' ? 'rejected' : 'valid';
+        }
+      } catch (err) {
+        handleFirestoreError(err, OperationType.GET, path);
+      }
+    }
+
+    if (existingStatus) {
+      try {
+        if (existingStatus === 'rejected') {
+          await updateDoc(doc(db, 'submissions', docId), {
+            status: 'valid',
+            rejectionReason: '',
+            authorName: safeAuthorName,
+            department: safeDepartment,
+            office: userOffice,
+            note: payload.note,
+            imageDataUrl: payload.imageDataUrl,
+            createdAt: serverTimestamp(),
+            updatedAt: serverTimestamp(),
+          });
+        } else {
+          await updateDoc(doc(db, 'submissions', docId), {
+            authorName: safeAuthorName,
+            department: safeDepartment,
+            office: userOffice,
+            note: payload.note,
+            imageDataUrl: payload.imageDataUrl,
+            updatedAt: serverTimestamp(),
+            ...(payload.photoChanged ? { createdAt: serverTimestamp() } : {}),
+          });
+        }
       } catch (err) {
         handleFirestoreError(err, OperationType.UPDATE, path);
       }
       return;
     }
 
-    const docId = `${user.uid}_day${payload.stickerDay}`;
-    const path = `submissions/${docId}`;
-
     try {
       await setDoc(doc(db, 'submissions', docId), {
         uid: user.uid,
-        authorName: defaultAuthorName,
-        department: defaultDepartment,
+        authorName: safeAuthorName,
+        department: safeDepartment,
         office: userOffice,
         stickerDay: payload.stickerDay,
         imageDataUrl: payload.imageDataUrl,
-        note: '',
+        note: payload.note,
         status: 'valid',
+        rejectionReason: '',
         isProxy: false,
         createdAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
@@ -501,6 +622,7 @@ export default function App() {
         basePoints: nextConfig.basePoints,
         topN: nextConfig.topN,
         topNBonus: nextConfig.topNBonus,
+        eventStartDate: nextConfig.eventStartDate || '',
         stickerNames: nextConfig.stickerNames,
         stickerHints: nextConfig.stickerHints,
         stickerHintsTaipei:
@@ -517,12 +639,17 @@ export default function App() {
 
   const handleToggleSubmissionStatus = async (
     sub: StickerSubmission,
-    nextStatus: 'valid' | 'rejected'
+    nextStatus: 'valid' | 'rejected',
+    rejectionReason?: string
   ) => {
     const path = `submissions/${sub.id}`;
     try {
       await updateDoc(doc(db, 'submissions', sub.id), {
         status: nextStatus,
+        rejectionReason:
+          nextStatus === 'rejected'
+            ? (rejectionReason || '').trim().slice(0, MAX_REJECTION_REASON_LENGTH)
+            : '',
         updatedAt: serverTimestamp(),
       });
     } catch (err) {
@@ -720,6 +847,7 @@ export default function App() {
               authorName={defaultAuthorName}
               userOffice={userOffice}
               mySubmissionsByDay={mySubmissionsByDay}
+              myRejectedByDay={myRejectedByDay}
               byOffice={byOffice}
               totalValidCount={allScoredSubmissions.length}
               onNavigate={setActiveTab}
@@ -735,7 +863,9 @@ export default function App() {
               defaultOffice={userOffice}
               loading={loadingData}
               onOpenUpload={(day) => handleOpenUpload(day, null)}
-              onInspectPhoto={setLightboxSubmission}
+              onInspectPhoto={(sub) =>
+                setLightboxState({ submission: sub, allowUnblurred: false })
+              }
             />
           )}
 
@@ -747,10 +877,13 @@ export default function App() {
               department={defaultDepartment}
               userOffice={userOffice}
               mySubmissionsByDay={mySubmissionsByDay}
+              myRejectedByDay={myRejectedByDay}
               onSaveProfile={handleSaveProfile}
               onOpenUpload={handleOpenUpload}
               onDeleteSubmission={handleDeleteSubmission}
-              onInspectPhoto={setLightboxSubmission}
+              onInspectPhoto={(sub) =>
+                setLightboxState({ submission: sub, allowUnblurred: true })
+              }
               onSignOut={handleSignOut}
             />
           )}
@@ -759,7 +892,9 @@ export default function App() {
             <PhotoGalleryView
               config={eventConfig}
               submissions={allScoredSubmissions}
-              onInspectPhoto={setLightboxSubmission}
+              onInspectPhoto={(sub) =>
+                setLightboxState({ submission: sub, allowUnblurred: false })
+              }
               onOpenUpload={(day) => handleOpenUpload(day, null)}
             />
           )}
@@ -805,14 +940,17 @@ export default function App() {
         defaultDepartment={defaultDepartment}
         defaultOffice={userOffice}
         config={eventConfig}
+        mySubmissionsByDay={mySubmissionsByDay}
+        myRejectedByDay={myRejectedByDay}
         onClose={() => setUploadModalOpen(false)}
         onSubmit={handleSubmitSticker}
       />
 
       <PhotoLightbox
-        submission={lightboxSubmission}
+        submission={lightboxState?.submission ?? null}
         config={eventConfig}
-        onClose={() => setLightboxSubmission(null)}
+        allowUnblurred={lightboxState?.allowUnblurred ?? false}
+        onClose={() => setLightboxState(null)}
       />
 
       <ProfileModal

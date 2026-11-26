@@ -1,5 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Award, Camera, Clock, Pencil, Trophy } from 'lucide-react';
+import {
+  AlertCircle,
+  Award,
+  Camera,
+  Clock,
+  Pencil,
+  Trophy,
+} from 'lucide-react';
 import {
   ActiveTab,
   EventConfig,
@@ -7,6 +14,7 @@ import {
   OfficeId,
   OfficeScoredData,
   ScoredSubmission,
+  StickerSubmission,
   TOTAL_STICKERS,
 } from '../types';
 import { formatEventSubtitle } from '../utils/scoring';
@@ -17,6 +25,7 @@ interface HomeViewProps {
   authorName: string;
   userOffice: OfficeId;
   mySubmissionsByDay: Record<number, ScoredSubmission>;
+  myRejectedByDay: Record<number, StickerSubmission>;
   byOffice: Record<OfficeId, OfficeScoredData>;
   totalValidCount: number;
   onNavigate: (tab: ActiveTab) => void;
@@ -29,6 +38,7 @@ export function HomeView({
   authorName,
   userOffice,
   mySubmissionsByDay,
+  myRejectedByDay,
   byOffice,
   totalValidCount,
   onNavigate,
@@ -42,6 +52,7 @@ export function HomeView({
   }, [userOffice]);
 
   const myFoundCount = Object.keys(mySubmissionsByDay).length;
+  const rejectedCount = Object.keys(myRejectedByDay).length;
   const myTotalScore = Object.values(mySubmissionsByDay).reduce(
     (sum, s) => sum + s.totalPointsEarned,
     0
@@ -50,6 +61,27 @@ export function HomeView({
 
   return (
     <div className="space-y-8">
+      {rejectedCount > 0 && (
+        <div
+          role="alert"
+          className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl px-4 py-3.5 flex flex-wrap items-center justify-between gap-3"
+        >
+          <div className="flex items-center gap-2 text-sm text-[#991B1B] font-semibold">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>
+              您有 {rejectedCount} 張貼紙照片被管理員設為無效，請查看原因並重新上傳。
+            </span>
+          </div>
+          <button
+            type="button"
+            onClick={() => onNavigate('upload')}
+            className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-[#991B1B] rounded-lg transition-colors whitespace-nowrap shrink-0"
+          >
+            前往查看無效原因
+          </button>
+        </div>
+      )}
+
       {/* Clean editorial header band without decorative photo */}
       <section className="pb-8 border-b border-[#E5EAE7]">
         <div className="flex flex-col lg:flex-row lg:items-end justify-between gap-6">
@@ -140,15 +172,24 @@ export function HomeView({
           {Array.from({ length: TOTAL_STICKERS }, (_, idx) => {
             const day = idx + 1;
             const found = Boolean(mySubmissionsByDay[day]);
+            const rejected = !found && Boolean(myRejectedByDay[day]);
             return (
               <button
                 key={day}
                 type="button"
-                onClick={() => onOpenUpload(day)}
+                onClick={() => {
+                  if (rejected) {
+                    onNavigate('upload');
+                  } else {
+                    onOpenUpload(day);
+                  }
+                }}
                 className={`rounded-lg p-3.5 border transition-colors flex flex-col items-center text-center ${
                   found
                     ? 'bg-[#F2F8F4] border-[#155E3A]/40'
-                    : 'bg-white border-[#E5EAE7] hover:border-[#B91C1C]/40'
+                    : rejected
+                      ? 'bg-[#FEF2F2] border-[#FECACA]'
+                      : 'bg-white border-[#E5EAE7] hover:border-[#B91C1C]/40'
                 }`}
               >
                 <GingerbreadStickerSvg day={day} className="w-12 h-12" />
@@ -157,10 +198,14 @@ export function HomeView({
                 </span>
                 <span
                   className={`text-[11px] mt-0.5 font-medium ${
-                    found ? 'text-[#155E3A]' : 'text-[#6B7280]'
+                    found
+                      ? 'text-[#155E3A]'
+                      : rejected
+                        ? 'text-[#B91C1C]'
+                        : 'text-[#6B7280]'
                   }`}
                 >
-                  {found ? '已收集' : '未打卡'}
+                  {found ? '已收集' : rejected ? '已設為無效' : '未打卡'}
                 </span>
               </button>
             );

@@ -113,7 +113,7 @@ service cloud.firestore {
         data.keys().hasOnly([
           'title', 'subtitle', 'basePoints', 'topN', 'topNBonus',
           'stickerNames', 'stickerHints', 'stickerHintsTaipei', 'stickerHintsHsinchu',
-          'updatedAt', 'updatedBy'
+          'eventStartDate', 'updatedAt', 'updatedBy'
         ]) &&
         data.title is string && data.title.size() >= 1 && data.title.size() <= 80 &&
         data.subtitle is string && data.subtitle.size() <= 200 &&
@@ -124,6 +124,7 @@ service cloud.firestore {
         isValidStickerHintArray(data.stickerHints) &&
         (!('stickerHintsTaipei' in data) || isValidStickerHintArray(data.stickerHintsTaipei)) &&
         (!('stickerHintsHsinchu' in data) || isValidStickerHintArray(data.stickerHintsHsinchu)) &&
+        (!('eventStartDate' in data) || (data.eventStartDate is string && data.eventStartDate.size() <= 10 && data.eventStartDate.matches('^$|^\\d{4}-\\d{2}-\\d{2}$'))) &&
         data.updatedAt is timestamp &&
         isValidId(data.updatedBy);
     }
@@ -135,7 +136,7 @@ service cloud.firestore {
         ]) &&
         data.keys().hasOnly([
           'uid', 'authorName', 'department', 'office', 'stickerDay',
-          'imageDataUrl', 'note', 'status', 'isProxy', 'createdAt', 'updatedAt'
+          'imageDataUrl', 'note', 'status', 'rejectionReason', 'isProxy', 'createdAt', 'updatedAt'
         ]) &&
         isValidId(data.uid) &&
         data.authorName is string && data.authorName.size() >= 1 && data.authorName.size() <= 60 &&
@@ -152,6 +153,7 @@ service cloud.firestore {
         ] &&
         data.note is string && data.note.size() <= 200 &&
         data.status in ['valid', 'rejected'] &&
+        (!('rejectionReason' in data) || (data.rejectionReason is string && data.rejectionReason.size() <= 200)) &&
         data.isProxy is bool &&
         data.createdAt is timestamp &&
         data.updatedAt is timestamp;
@@ -212,7 +214,7 @@ service cloud.firestore {
         incoming().diff(existing()).affectedKeys().hasOnly([
           'title', 'subtitle', 'basePoints', 'topN', 'topNBonus',
           'stickerNames', 'stickerHints', 'stickerHintsTaipei', 'stickerHintsHsinchu',
-          'updatedAt', 'updatedBy'
+          'eventStartDate', 'updatedAt', 'updatedBy'
         ]) &&
         incoming().updatedAt == request.time &&
         incoming().updatedBy == request.auth.uid;
@@ -222,9 +224,27 @@ service cloud.firestore {
     // Collection: /submissions/{submissionId}
     match /submissions/{submissionId} {
       allow get: if isVerifiedUser() && isValidId(submissionId) && (
-        existing().status == 'valid' ||
-        existing().uid == request.auth.uid ||
-        isAdmin()
+        (
+          resource == null && (
+            isAdmin() ||
+            submissionId in [
+              request.auth.uid + '_day1',
+              request.auth.uid + '_day2',
+              request.auth.uid + '_day3',
+              request.auth.uid + '_day4',
+              request.auth.uid + '_day5',
+              request.auth.uid + '_day6',
+              request.auth.uid + '_day7'
+            ]
+          )
+        ) ||
+        (
+          resource != null && (
+            existing().status == 'valid' ||
+            existing().uid == request.auth.uid ||
+            isAdmin()
+          )
+        )
       );
       allow list: if isVerifiedUser() && (
         resource.data.status == 'valid' ||
@@ -245,21 +265,33 @@ service cloud.firestore {
         incoming().uid == existing().uid &&
         incoming().stickerDay == existing().stickerDay &&
         incoming().isProxy == existing().isProxy &&
-        incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
         (
           (
             isAdmin() &&
+            incoming().createdAt == existing().createdAt &&
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'status', 'authorName', 'department', 'office', 'imageDataUrl', 'note', 'updatedAt'
+              'status', 'rejectionReason', 'authorName', 'department', 'office', 'imageDataUrl', 'note', 'updatedAt'
             ])
           ) ||
           (
             existing().uid == request.auth.uid &&
             existing().status == 'valid' &&
-            incoming().status == existing().status &&
+            incoming().status == 'valid' &&
+            (!('rejectionReason' in incoming()) || incoming().rejectionReason == '') &&
+            (incoming().createdAt == existing().createdAt || incoming().createdAt == request.time) &&
             incoming().diff(existing()).affectedKeys().hasOnly([
-              'authorName', 'department', 'office', 'imageDataUrl', 'note', 'updatedAt'
+              'authorName', 'department', 'office', 'imageDataUrl', 'note', 'rejectionReason', 'createdAt', 'updatedAt'
+            ])
+          ) ||
+          (
+            existing().uid == request.auth.uid &&
+            existing().status == 'rejected' &&
+            incoming().status == 'valid' &&
+            incoming().rejectionReason == '' &&
+            incoming().createdAt == request.time &&
+            incoming().diff(existing()).affectedKeys().hasOnly([
+              'status', 'rejectionReason', 'authorName', 'department', 'office', 'imageDataUrl', 'note', 'createdAt', 'updatedAt'
             ])
           )
         );

@@ -62,6 +62,62 @@ export function formatEventSubtitle(config: EventConfig): string {
   );
 }
 
+export interface PhotoUnlockStatus {
+  unlocked: boolean;
+  unlockAtMs: number;
+  unlockLabel: string;
+}
+
+export function getStickerPhotoUnlockStatus(
+  stickerDay: number,
+  createdAtMs: number,
+  eventStartDate?: string,
+  nowMs: number = Date.now()
+): PhotoUnlockStatus {
+  let unlockAtMs: number;
+  const trimmedDate =
+    typeof eventStartDate === 'string' ? eventStartDate.trim() : '';
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(trimmedDate);
+  if (match) {
+    const year = Number(match[1]);
+    const month = Number(match[2]) - 1;
+    const day = Number(match[3]);
+    const unlockDate = new Date(
+      year,
+      month,
+      day + Math.max(1, stickerDay),
+      0,
+      0,
+      0,
+      0
+    );
+    unlockAtMs = unlockDate.getTime();
+  } else {
+    const uploaded = new Date(createdAtMs || nowMs);
+    const nextDay = new Date(
+      uploaded.getFullYear(),
+      uploaded.getMonth(),
+      uploaded.getDate() + 1,
+      0,
+      0,
+      0,
+      0
+    );
+    unlockAtMs = nextDay.getTime();
+  }
+
+  const unlockDateObj = new Date(unlockAtMs);
+  const unlockLabel = `${String(unlockDateObj.getMonth() + 1).padStart(2, '0')}/${String(
+    unlockDateObj.getDate()
+  ).padStart(2, '0')} 00:00`;
+
+  return {
+    unlocked: nowMs >= unlockAtMs,
+    unlockAtMs,
+    unlockLabel,
+  };
+}
+
 function computeOfficeScoredData(
   officeSubmissions: StickerSubmission[],
   config: EventConfig,

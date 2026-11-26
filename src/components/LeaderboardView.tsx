@@ -8,7 +8,11 @@ import {
   ScoredSubmission,
   TOTAL_STICKERS,
 } from '../types';
-import { exportLeaderboardCsv, formatTimestamp } from '../utils/scoring';
+import {
+  exportLeaderboardCsv,
+  formatTimestamp,
+  getStickerPhotoUnlockStatus,
+} from '../utils/scoring';
 
 interface LeaderboardViewProps {
   config: EventConfig;
@@ -434,21 +438,36 @@ export function LeaderboardView({
                                       );
                                     }
 
-                                    return (
-                                      <button
-                                        key={day}
-                                        type="button"
-                                        onClick={() => onInspectPhoto(sub)}
-                                        className="group text-left bg-white border border-[#E5EAE7] hover:border-[#155E3A] rounded-lg overflow-hidden transition-colors"
-                                      >
-                                        <div className="aspect-4/3 bg-[#F3F6F4] overflow-hidden">
-                                          <img
-                                            src={sub.imageDataUrl}
-                                            alt={`${entry.authorName} Day ${day}`}
-                                            referrerPolicy="no-referrer"
-                                            className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                                          />
-                                        </div>
+                                      const subBlurred = !getStickerPhotoUnlockStatus(
+                                        day,
+                                        sub.createdAtMs,
+                                        config.eventStartDate
+                                      ).unlocked;
+
+                                      return (
+                                        <button
+                                          key={day}
+                                          type="button"
+                                          onClick={() => onInspectPhoto(sub)}
+                                          className="group text-left bg-white border border-[#E5EAE7] hover:border-[#155E3A] rounded-lg overflow-hidden transition-colors"
+                                        >
+                                          <div className="aspect-4/3 bg-[#F3F6F4] overflow-hidden relative">
+                                            <img
+                                              src={sub.imageDataUrl}
+                                              alt={`${entry.authorName} Day ${day}`}
+                                              referrerPolicy="no-referrer"
+                                              className={`w-full h-full object-cover transition-transform duration-200 ${
+                                                subBlurred
+                                                  ? 'blur-xl scale-110 select-none pointer-events-none'
+                                                  : 'group-hover:scale-105'
+                                              }`}
+                                            />
+                                            {subBlurred && (
+                                              <span className="absolute inset-0 bg-black/30 flex items-center justify-center text-[10px] font-semibold text-white">
+                                                隔日解鎖
+                                              </span>
+                                            )}
+                                          </div>
                                         <div className="p-2">
                                           <div className="flex items-center justify-between text-xs font-mono-num">
                                             <span className="font-semibold text-[#111827]">
@@ -532,12 +551,22 @@ export function LeaderboardView({
                       </span>
                     </td>
                     <td className="py-3 px-4">
-                      <img
-                        src={sub.imageDataUrl}
-                        alt={`${sub.authorName} Day ${sub.stickerDay}`}
-                        referrerPolicy="no-referrer"
-                        className="w-14 h-10 object-cover rounded-md border border-[#E5EAE7] bg-white"
-                      />
+                      <div className="w-14 h-10 rounded-md border border-[#E5EAE7] bg-white overflow-hidden">
+                        <img
+                          src={sub.imageDataUrl}
+                          alt={`${sub.authorName} Day ${sub.stickerDay}`}
+                          referrerPolicy="no-referrer"
+                          className={`w-full h-full object-cover ${
+                            !getStickerPhotoUnlockStatus(
+                              sub.stickerDay,
+                              sub.createdAtMs,
+                              config.eventStartDate
+                            ).unlocked
+                              ? 'blur-md scale-110 select-none pointer-events-none'
+                              : ''
+                          }`}
+                        />
+                      </div>
                     </td>
                     <td className="py-3 px-4">
                       <div className="font-semibold text-[#111827]">

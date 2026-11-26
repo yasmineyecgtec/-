@@ -6,6 +6,7 @@ import {
   Trash2,
   UserPlus,
   Users,
+  X,
 } from 'lucide-react';
 import {
   AdminInviteRecord,
@@ -14,6 +15,7 @@ import {
   EventConfig,
   MAX_ADMIN_NOTE_LENGTH,
   MAX_INVITE_EMAIL_LENGTH,
+  MAX_REJECTION_REASON_LENGTH,
   MAX_SUBTITLE_LENGTH,
   MAX_TITLE_LENGTH,
   OFFICE_LABELS,
@@ -46,7 +48,8 @@ interface AdminRulesViewProps {
   onSaveConfig: (nextConfig: EventConfig) => Promise<void>;
   onToggleSubmissionStatus: (
     sub: StickerSubmission,
-    nextStatus: 'valid' | 'rejected'
+    nextStatus: 'valid' | 'rejected',
+    rejectionReason?: string
   ) => Promise<void>;
   onDeleteSubmission: (sub: StickerSubmission) => Promise<void>;
   onAddCoAdminByEmail: (email: string, note: string) => Promise<void>;
@@ -84,6 +87,9 @@ export function AdminRulesView({
   const [basePoints, setBasePoints] = useState(config.basePoints);
   const [topN, setTopN] = useState(config.topN);
   const [topNBonus, setTopNBonus] = useState(config.topNBonus);
+  const [eventStartDate, setEventStartDate] = useState(
+    config.eventStartDate || ''
+  );
   const [stickerNames, setStickerNames] = useState<string[]>(config.stickerNames);
   const [hintsTaipei, setHintsTaipei] = useState<string[]>(
     getOfficeHints(config, 'taipei')
@@ -94,6 +100,11 @@ export function AdminRulesView({
   const [saving, setSaving] = useState(false);
   const [savedNotice, setSavedNotice] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [rejectTargetSub, setRejectTargetSub] =
+    useState<StickerSubmission | null>(null);
+  const [rejectReason, setRejectReason] = useState('');
+  const [rejectError, setRejectError] = useState<string | null>(null);
+  const [rejectSubmitting, setRejectSubmitting] = useState(false);
 
   const [inviteEmail, setInviteEmail] = useState('');
   const [inviteNote, setInviteNote] = useState('');
@@ -119,6 +130,7 @@ export function AdminRulesView({
     setBasePoints(config.basePoints);
     setTopN(config.topN);
     setTopNBonus(config.topNBonus);
+    setEventStartDate(config.eventStartDate || '');
     setStickerNames(config.stickerNames);
     setHintsTaipei(getOfficeHints(config, 'taipei'));
     setHintsHsinchu(
@@ -311,6 +323,7 @@ export function AdminRulesView({
         basePoints: finalBasePoints,
         topN: finalTopN,
         topNBonus: finalTopNBonus,
+        eventStartDate: eventStartDate.trim(),
         stickerNames: stickerNames.map((n, i) =>
           (n.trim() || `Day ${i + 1}`).slice(0, 60)
         ),
@@ -533,6 +546,27 @@ export function AdminRulesView({
                     }}
                     className="w-full px-3 py-2 text-sm text-[#111827] font-mono-num border border-[#D1DDD6] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155E3A]"
                   />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-1">
+                <div>
+                  <label
+                    htmlFor="event-start-date-input"
+                    className="block text-xs font-semibold text-[#111827] mb-1"
+                  >
+                    活動第 1 天日期（選填，用於貼紙照片牆逐日解鎖）
+                  </label>
+                  <input
+                    id="event-start-date-input"
+                    type="date"
+                    value={eventStartDate}
+                    onChange={(e) => setEventStartDate(e.target.value)}
+                    className="w-full px-3 py-2 text-sm text-[#111827] font-mono-num border border-[#D1DDD6] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155E3A]"
+                  />
+                  <p className="text-[11px] text-[#6B7280] mt-1">
+                    設定後，Day 1 清楚照片於第二天 00:00 顯示、Day 2 於第三天顯示，以此類推；若留白則依每張照片上傳隔天 00:00 解鎖。
+                  </p>
                 </div>
               </div>
 
@@ -1014,16 +1048,27 @@ export function AdminRulesView({
                             >
                               {sub.status === 'valid' ? '有效計分' : '已駁回'}
                             </span>
+                            {sub.status === 'rejected' && (
+                              <p
+                                title={sub.rejectionReason || ''}
+                                className="text-[11px] text-[#6B7280] mt-0.5 max-w-[200px] truncate"
+                              >
+                                原因：{sub.rejectionReason || '未填寫原因'}
+                              </p>
+                            )}
                           </td>
                           <td className="py-3 px-4 text-right space-x-2">
                             <button
                               type="button"
-                              onClick={() =>
-                                onToggleSubmissionStatus(
-                                  sub,
-                                  sub.status === 'valid' ? 'rejected' : 'valid'
-                                )
-                              }
+                              onClick={() => {
+                                if (sub.status === 'valid') {
+                                  setRejectTargetSub(sub);
+                                  setRejectReason('');
+                                  setRejectError(null);
+                                } else {
+                                  void onToggleSubmissionStatus(sub, 'valid', '');
+                                }
+                              }}
                               className="px-2.5 py-1 text-xs font-semibold text-[#111827] border border-[#D1DDD6] rounded-md hover:bg-[#F8FBF9]"
                             >
                               {sub.status === 'valid' ? '設為無效' : '恢復有效'}
@@ -1045,6 +1090,164 @@ export function AdminRulesView({
               </div>
             )}
           </section>
+
+          {/* Rejection reason modal */}
+          {rejectTargetSub && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="輸入設為無效原因"
+              className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4"
+              onClick={() => {
+                if (!rejectSubmitting) setRejectTargetSub(null);
+              }}
+            >
+              <div
+                className="bg-white border border-[#E5EAE7] rounded-xl max-w-md w-full shadow-lg overflow-hidden"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-5 py-4 border-b border-[#E5EAE7] flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-bold text-[#111827]">
+                      設為無效並填寫原因
+                    </h3>
+                    <p className="text-xs text-[#6B7280] mt-0.5">
+                      {OFFICE_SHORT_LABELS[resolveSubmissionOffice(rejectTargetSub)]}{' '}
+                      · Day {rejectTargetSub.stickerDay} ·{' '}
+                      {rejectTargetSub.authorName}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={rejectSubmitting}
+                    onClick={() => setRejectTargetSub(null)}
+                    aria-label="關閉視窗"
+                    className="p-1.5 text-[#526058] hover:text-[#111827] rounded-lg hover:bg-[#F3F6F4]"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+
+                <form
+                  onSubmit={async (e) => {
+                    e.preventDefault();
+                    const trimmed = rejectReason.trim();
+                    if (!trimmed) {
+                      setRejectError('請輸入無效原因，讓同仁知道如何重新上傳。');
+                      return;
+                    }
+                    setRejectError(null);
+                    setRejectSubmitting(true);
+                    try {
+                      await onToggleSubmissionStatus(
+                        rejectTargetSub,
+                        'rejected',
+                        trimmed
+                      );
+                      setRejectTargetSub(null);
+                      setRejectReason('');
+                    } catch (err) {
+                      setRejectError(
+                        err instanceof Error ? err.message : '操作失敗，請稍後再試。'
+                      );
+                    } finally {
+                      setRejectSubmitting(false);
+                    }
+                  }}
+                  className="p-5 space-y-4"
+                >
+                  {rejectError && (
+                    <div
+                      role="alert"
+                      className="p-3 rounded-lg bg-[#FEF2F2] border border-[#FECACA] text-xs text-[#991B1B]"
+                    >
+                      {rejectError}
+                    </div>
+                  )}
+
+                  <div className="flex items-center gap-3 p-2.5 rounded-lg bg-[#F7FAF8] border border-[#E5EAE7]">
+                    <img
+                      src={rejectTargetSub.imageDataUrl}
+                      alt={rejectTargetSub.authorName}
+                      referrerPolicy="no-referrer"
+                      className="w-16 h-12 object-cover rounded border border-[#E5EAE7] shrink-0"
+                    />
+                    <div className="text-xs text-[#4B5563]">
+                      <p className="font-semibold text-[#111827]">
+                        {config.stickerNames[rejectTargetSub.stickerDay - 1] ||
+                          `Day ${rejectTargetSub.stickerDay}`}
+                      </p>
+                      <p className="mt-0.5">
+                        設為無效後將不計分，同仁可於打卡頁面查看原因並重新上傳。
+                      </p>
+                    </div>
+                  </div>
+
+                  <div>
+                    <p className="text-xs font-semibold text-[#111827] mb-1.5">
+                      常用原因快速帶入：
+                    </p>
+                    <div className="flex flex-wrap gap-1.5">
+                      {[
+                        '照片模糊無法辨識薑餅人款式',
+                        '非本活動指定編號貼紙',
+                        '非現場實拍或重複使用他人照片',
+                      ].map((preset) => (
+                        <button
+                          key={preset}
+                          type="button"
+                          onClick={() => setRejectReason(preset)}
+                          className="px-2.5 py-1 text-[11px] font-medium text-[#374151] bg-[#F3F6F4] hover:bg-[#E5EAE7] rounded-md transition-colors"
+                        >
+                          {preset}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div>
+                    <label
+                      htmlFor="reject-reason-input"
+                      className="block text-xs font-semibold text-[#111827] mb-1.5"
+                    >
+                      無效原因說明 <span className="text-[#B91C1C]">*</span>
+                    </label>
+                    <textarea
+                      id="reject-reason-input"
+                      rows={3}
+                      required
+                      maxLength={MAX_REJECTION_REASON_LENGTH}
+                      value={rejectReason}
+                      onChange={(e) => setRejectReason(e.target.value)}
+                      placeholder="請說明為何此照片無效（同仁將可看到此說明）..."
+                      className="w-full px-3 py-2 text-sm text-[#111827] border border-[#D1DDD6] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#B91C1C] resize-none"
+                    />
+                    <div className="text-right text-[11px] text-[#6B7280] mt-1 font-mono-num">
+                      {rejectReason.length}/{MAX_REJECTION_REASON_LENGTH}
+                    </div>
+                  </div>
+
+                  <div className="flex items-center justify-end gap-2.5 pt-2 border-t border-[#E5EAE7]">
+                    <button
+                      type="button"
+                      disabled={rejectSubmitting}
+                      onClick={() => setRejectTargetSub(null)}
+                      className="px-4 py-2 text-xs font-semibold text-[#4B5563] bg-white border border-[#D1DDD6] hover:bg-[#F8FBF9] rounded-lg"
+                    >
+                      取消
+                    </button>
+                    <button
+                      type="submit"
+                      disabled={rejectSubmitting}
+                      className="px-4 py-2 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-[#991B1B] disabled:opacity-60 rounded-lg"
+                    >
+                      {rejectSubmitting ? '處理中...' : '確認設為無效'}
+                    </button>
+                  </div>
+                </form>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>

@@ -1,5 +1,12 @@
 import { useMemo, useState } from 'react';
-import { Camera, Download, Search } from 'lucide-react';
+import {
+  Camera,
+  Clock,
+  Download,
+  Lock,
+  MessageSquareHeart,
+  Search,
+} from 'lucide-react';
 import {
   EventConfig,
   OFFICE_LABELS,
@@ -9,7 +16,7 @@ import {
   TOTAL_STICKERS,
 } from '../types';
 import { downloadDataUrl } from '../utils/imageUtils';
-import { formatTimestamp } from '../utils/scoring';
+import { formatTimestamp, getStickerPhotoUnlockStatus } from '../utils/scoring';
 
 interface PhotoGalleryViewProps {
   config: EventConfig;
@@ -38,13 +45,22 @@ export function PhotoGalleryView({
         if (!q) return true;
         return (
           sub.authorName.toLowerCase().includes(q) ||
-          sub.department.toLowerCase().includes(q)
+          sub.department.toLowerCase().includes(q) ||
+          (sub.note || '').toLowerCase().includes(q)
         );
       });
   }, [submissions, officeFilter, dayFilter, searchQuery]);
 
   return (
     <div className="space-y-6">
+      <div className="bg-[#F7FAF8] border border-[#E5EAE7] rounded-xl px-4 py-3 flex items-start gap-2.5 text-xs text-[#155E3A]">
+        <Clock className="w-4 h-4 shrink-0 mt-0.5" />
+        <p className="leading-relaxed">
+          <strong className="font-semibold">貼紙位置防劇透保護：</strong>
+          照片牆已啟用隔日解鎖遮罩，第 1 天的清楚照片將於第 2 天 00:00 自動顯示，第 2 天將於第 3 天顯示，以此類推；同仁留下的聖誕祝福留言仍可即時閱讀！
+        </p>
+      </div>
+
       <div className="bg-white border border-[#E5EAE7] rounded-xl p-4 sm:p-5 space-y-3">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4">
           {/* Office filter */}
@@ -76,13 +92,13 @@ export function PhotoGalleryView({
             ))}
           </div>
 
-          <div className="relative w-full lg:w-64">
+          <div className="relative w-full lg:w-72">
             <Search className="w-4 h-4 text-[#6B7280] absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
             <input
               type="search"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              placeholder="搜尋參賽名稱或部門..."
+              placeholder="搜尋參賽名稱、部門或留言..."
               className="w-full pl-9 pr-3 py-1.5 text-sm text-[#111827] border border-[#D1DDD6] rounded-lg focus:outline-none focus:ring-2 focus:ring-[#155E3A]"
             />
           </div>
@@ -129,7 +145,7 @@ export function PhotoGalleryView({
             目前沒有符合條件的貼紙照片
           </h3>
           <p className="text-sm text-[#4B5563] mb-5">
-            上傳找到的薑餅人貼紙現場照片，與同事分享尋寶成果。
+            上傳找到的薑餅人貼紙現場照片，並留下祝福給同事們吧。
           </p>
           <button
             type="button"
@@ -148,6 +164,12 @@ export function PhotoGalleryView({
               '_'
             );
             const filename = `薑餅人_${officeShort}_Day${sub.stickerDay}_${safeName}.jpg`;
+            const unlockStatus = getStickerPhotoUnlockStatus(
+              sub.stickerDay,
+              sub.createdAtMs,
+              config.eventStartDate
+            );
+            const isBlurred = !unlockStatus.unlocked;
 
             return (
               <article
@@ -162,10 +184,33 @@ export function PhotoGalleryView({
                   >
                     <img
                       src={sub.imageDataUrl}
-                      alt={`${sub.authorName} 上傳的 Day ${sub.stickerDay} 貼紙`}
+                      alt={
+                        isBlurred
+                          ? `${sub.authorName} 的 Day ${sub.stickerDay} 貼紙（隔日解鎖）`
+                          : `${sub.authorName} 上傳的 Day ${sub.stickerDay} 貼紙`
+                      }
                       referrerPolicy="no-referrer"
-                      className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                      className={`w-full h-full object-cover transition-transform duration-200 ${
+                        isBlurred
+                          ? 'blur-2xl scale-110 select-none pointer-events-none'
+                          : 'group-hover:scale-105'
+                      }`}
                     />
+
+                    {isBlurred && (
+                      <div className="absolute inset-0 bg-black/35 flex flex-col items-center justify-center text-white px-4 text-center">
+                        <div className="w-9 h-9 rounded-full bg-black/55 border border-white/25 flex items-center justify-center mb-2">
+                          <Lock className="w-4 h-4 text-white" />
+                        </div>
+                        <p className="text-xs font-bold">
+                          Day {sub.stickerDay} 照片保護中
+                        </p>
+                        <p className="text-[11px] text-white/85 mt-0.5 font-mono-num">
+                          預計 {unlockStatus.unlockLabel} 解鎖清楚照片
+                        </p>
+                      </div>
+                    )}
+
                     <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-left text-white">
                       <p className="text-xs font-mono-num">
                         {officeShort} · Day {sub.stickerDay} · 第 {sub.dayRank} 名 · +
@@ -188,6 +233,14 @@ export function PhotoGalleryView({
                       {config.stickerNames[sub.stickerDay - 1] ||
                         `Day ${sub.stickerDay}`}
                     </p>
+                    {sub.note && (
+                      <div className="mt-2.5 px-3 py-2 rounded-lg bg-[#F7FAF8] border border-[#E5EAE7] flex items-start gap-2">
+                        <MessageSquareHeart className="w-3.5 h-3.5 text-[#B91C1C] shrink-0 mt-0.5" />
+                        <p className="text-xs text-[#374151] leading-relaxed break-words">
+                          {sub.note}
+                        </p>
+                      </div>
+                    )}
                   </div>
                 </div>
 
@@ -197,16 +250,23 @@ export function PhotoGalleryView({
                     onClick={() => onInspectPhoto(sub)}
                     className="text-xs font-semibold text-[#B91C1C] hover:text-[#991B1B]"
                   >
-                    放大檢視
+                    {isBlurred ? '檢視留言與解鎖時間' : '放大檢視'}
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => downloadDataUrl(sub.imageDataUrl, filename)}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#155E3A] bg-white border border-[#D1DDD6] hover:border-[#155E3A] hover:bg-[#F8FBF9] rounded-lg transition-colors"
-                  >
-                    <Download className="w-3.5 h-3.5" />
-                    <span>保存圖片</span>
-                  </button>
+                  {isBlurred ? (
+                    <span className="inline-flex items-center gap-1 text-[11px] font-medium text-[#6B7280]">
+                      <Lock className="w-3 h-3" />
+                      <span>解鎖後可保存</span>
+                    </span>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => downloadDataUrl(sub.imageDataUrl, filename)}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#155E3A] bg-white border border-[#D1DDD6] hover:border-[#155E3A] hover:bg-[#F8FBF9] rounded-lg transition-colors"
+                    >
+                      <Download className="w-3.5 h-3.5" />
+                      <span>保存圖片</span>
+                    </button>
+                  )}
                 </div>
               </article>
             );

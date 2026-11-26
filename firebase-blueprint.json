@@ -131,6 +131,12 @@
           "type": "array",
           "description": "Ordered list of 7 clue hints for Hsinchu office."
         },
+        "eventStartDate": {
+          "type": "string",
+          "maxLength": 10,
+          "pattern": "^$|^\\d{4}-\\d{2}-\\d{2}$",
+          "description": "Optional YYYY-MM-DD date of Day 1 used to unlock next-day clear photos in the gallery."
+        },
         "updatedAt": {
           "type": "string",
           "format": "date-time"
@@ -183,6 +189,11 @@
         "status": {
           "type": "string",
           "enum": ["valid", "rejected"]
+        },
+        "rejectionReason": {
+          "type": "string",
+          "maxLength": 200,
+          "description": "Reason provided by an admin when marking a submission as rejected."
         },
         "isProxy": {
           "type": "boolean"

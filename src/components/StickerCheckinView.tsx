@@ -1,5 +1,16 @@
 import { useState } from 'react';
-import { Camera, Check, Download, LogOut, Pencil, Trash2 } from 'lucide-react';
+import {
+  AlertCircle,
+  AlertTriangle,
+  Camera,
+  Check,
+  Download,
+  LogOut,
+  MessageSquareHeart,
+  Pencil,
+  Trash2,
+  X,
+} from 'lucide-react';
 import {
   EventConfig,
   MAX_AUTHOR_NAME_LENGTH,
@@ -21,6 +32,7 @@ interface StickerCheckinViewProps {
   department: string;
   userOffice: OfficeId;
   mySubmissionsByDay: Record<number, ScoredSubmission>;
+  myRejectedByDay: Record<number, StickerSubmission>;
   onSaveProfile: (
     name: string,
     department: string,
@@ -39,6 +51,7 @@ export function StickerCheckinView({
   department,
   userOffice,
   mySubmissionsByDay,
+  myRejectedByDay,
   onSaveProfile,
   onOpenUpload,
   onDeleteSubmission,
@@ -51,11 +64,17 @@ export function StickerCheckinView({
   const [officeInput, setOfficeInput] = useState<OfficeId>(userOffice);
   const [savingProfile, setSavingProfile] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [confirmReplaceDay, setConfirmReplaceDay] = useState<number | null>(
+    null
+  );
 
   const myFoundCount = Object.keys(mySubmissionsByDay).length;
   const myTotalScore = Object.values(mySubmissionsByDay).reduce(
     (sum, s) => sum + s.totalPointsEarned,
     0
+  );
+  const rejectedList = (Object.values(myRejectedByDay) as StickerSubmission[]).sort(
+    (a, b) => a.stickerDay - b.stickerDay
   );
   const officeHints = getOfficeHints(config, userOffice);
   const officeLabel = OFFICE_LABELS[userOffice];
@@ -74,6 +93,43 @@ export function StickerCheckinView({
 
   return (
     <div className="space-y-8">
+      {/* Rejected submissions alert */}
+      {rejectedList.length > 0 && (
+        <section
+          role="alert"
+          className="bg-[#FEF2F2] border border-[#FECACA] rounded-xl p-4 sm:p-5 space-y-2.5"
+        >
+          <div className="flex items-center gap-2 text-[#991B1B] font-bold text-sm">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>
+              您有 {rejectedList.length} 張貼紙照片被管理員設為無效（目前不計分）
+            </span>
+          </div>
+          <div className="space-y-1.5 text-xs text-[#7F1D1D]">
+            {rejectedList.map((rej) => (
+              <div
+                key={rej.id}
+                className="flex flex-wrap items-center justify-between gap-2 bg-white/80 border border-[#FECACA] rounded-lg px-3 py-2"
+              >
+                <span>
+                  <strong className="font-mono-num">
+                    Day {rej.stickerDay}
+                  </strong>{' '}
+                  · 無效原因：{rej.rejectionReason || '管理員未填寫原因'}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onOpenUpload(rej.stickerDay, rej)}
+                  className="font-semibold text-[#B91C1C] hover:underline"
+                >
+                  重新上傳照片
+                </button>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
+
       {/* Colleague workspace profile strip */}
       <section className="bg-white border border-[#E5EAE7] rounded-xl p-5 sm:p-6">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
@@ -196,6 +252,7 @@ export function StickerCheckinView({
           {Array.from({ length: TOTAL_STICKERS }, (_, idx) => {
             const day = idx + 1;
             const sub = mySubmissionsByDay[day];
+            const rejectedSub = !sub ? myRejectedByDay[day] : undefined;
             const stickerName = config.stickerNames[idx] || `Day ${day}`;
             const hint = officeHints[idx] || '';
 
@@ -203,7 +260,11 @@ export function StickerCheckinView({
               <article
                 key={day}
                 className={`bg-white border rounded-xl overflow-hidden flex flex-col justify-between ${
-                  sub ? 'border-[#155E3A]/40' : 'border-[#E5EAE7]'
+                  sub
+                    ? 'border-[#155E3A]/40'
+                    : rejectedSub
+                      ? 'border-[#FECACA]'
+                      : 'border-[#E5EAE7]'
                 }`}
               >
                 <div>
@@ -213,7 +274,9 @@ export function StickerCheckinView({
                         第 {day} 張 ·{' '}
                         {sub
                           ? `${OFFICE_LABELS[sub.office]}第 ${sub.dayRank} 名 (+${sub.totalPointsEarned}分)`
-                          : '尚未尋獲'}
+                          : rejectedSub
+                            ? '已設為無效（不計分）'
+                            : '尚未尋獲'}
                       </p>
                       <h4 className="text-sm font-semibold text-[#111827] truncate mt-0.5">
                         {stickerName}
@@ -223,6 +286,10 @@ export function StickerCheckinView({
                       <span className="w-7 h-7 rounded-full bg-[#155E3A] text-white flex items-center justify-center shrink-0">
                         <Check className="w-4 h-4" />
                       </span>
+                    ) : rejectedSub ? (
+                      <span className="w-7 h-7 rounded-full bg-[#B91C1C] text-white flex items-center justify-center shrink-0">
+                        <AlertCircle className="w-4 h-4" />
+                      </span>
                     ) : (
                       <span className="w-7 h-7 rounded-full border border-[#FECACA] bg-[#FEF2F2] text-[#B91C1C] text-xs font-mono-num font-bold flex items-center justify-center shrink-0">
                         {day}
@@ -231,29 +298,57 @@ export function StickerCheckinView({
                   </div>
 
                   {sub ? (
-                    <button
-                      type="button"
-                      onClick={() => onInspectPhoto(sub)}
-                      className="w-full aspect-4/3 bg-[#F3F6F4] overflow-hidden block relative group"
-                    >
-                      <img
-                        src={sub.imageDataUrl}
-                        alt={stickerName}
-                        referrerPolicy="no-referrer"
-                        className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
-                      />
-                      <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-left text-white">
-                        <p className="text-xs font-mono-num">
-                          上傳於 {formatTimestamp(sub.createdAtMs)}
-                        </p>
-                        {sub.isTopN && (
-                          <p className="text-xs font-semibold text-emerald-300 mt-0.5">
-                            搶進{OFFICE_LABELS[sub.office]}前 {config.topN} 名 ·
-                            速報加碼 +{sub.bonusPointsEarned} 分
+                    <div>
+                      <button
+                        type="button"
+                        onClick={() => onInspectPhoto(sub)}
+                        className="w-full aspect-4/3 bg-[#F3F6F4] overflow-hidden block relative group"
+                      >
+                        <img
+                          src={sub.imageDataUrl}
+                          alt={stickerName}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-200"
+                        />
+                        <div className="absolute inset-x-0 bottom-0 p-3 bg-gradient-to-t from-black/80 via-black/40 to-transparent text-left text-white">
+                          <p className="text-xs font-mono-num">
+                            上傳於 {formatTimestamp(sub.createdAtMs)}
                           </p>
-                        )}
+                          {sub.isTopN && (
+                            <p className="text-xs font-semibold text-emerald-300 mt-0.5">
+                              搶進{OFFICE_LABELS[sub.office]}前 {config.topN} 名 ·
+                              速報加碼 +{sub.bonusPointsEarned} 分
+                            </p>
+                          )}
+                        </div>
+                      </button>
+                      {sub.note && (
+                        <div className="px-4 py-2.5 bg-[#F7FAF8] border-t border-[#E5EAE7] flex items-start gap-2 text-xs text-[#374151]">
+                          <MessageSquareHeart className="w-3.5 h-3.5 text-[#B91C1C] shrink-0 mt-0.5" />
+                          <p className="break-words leading-relaxed">{sub.note}</p>
+                        </div>
+                      )}
+                    </div>
+                  ) : rejectedSub ? (
+                    <div className="p-4 space-y-3 bg-[#FEF2F2]/40">
+                      <div className="relative aspect-4/3 rounded-lg overflow-hidden border border-[#FECACA] bg-[#F3F6F4]">
+                        <img
+                          src={rejectedSub.imageDataUrl}
+                          alt={`Day ${day} 被駁回照片`}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover opacity-65"
+                        />
+                        <span className="absolute top-2 left-2 px-2 py-0.5 rounded bg-[#B91C1C] text-white text-[11px] font-semibold">
+                          無效照片
+                        </span>
                       </div>
-                    </button>
+                      <div className="p-3 rounded-lg bg-[#FEF2F2] border border-[#FECACA] text-xs text-[#991B1B] space-y-1">
+                        <p className="font-bold">管理員駁回原因：</p>
+                        <p className="leading-relaxed break-words">
+                          {rejectedSub.rejectionReason || '管理員未填寫詳細原因'}
+                        </p>
+                      </div>
+                    </div>
                   ) : (
                     <div className="p-4 flex items-center gap-4 bg-white">
                       <div className="w-24 h-24 rounded-lg bg-[#F7FAF8] border border-[#E5EAE7] flex items-center justify-center shrink-0">
@@ -272,7 +367,7 @@ export function StickerCheckinView({
                       <div className="flex items-center gap-2">
                         <button
                           type="button"
-                          onClick={() => onOpenUpload(day, sub)}
+                          onClick={() => setConfirmReplaceDay(day)}
                           className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold text-[#111827] border border-[#D1DDD6] hover:bg-[#F8FBF9] rounded-lg transition-colors"
                         >
                           <Pencil className="w-3.5 h-3.5" />
@@ -309,6 +404,33 @@ export function StickerCheckinView({
                         <Trash2 className="w-4 h-4" />
                       </button>
                     </>
+                  ) : rejectedSub ? (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => onOpenUpload(day, rejectedSub)}
+                        className="flex-1 inline-flex items-center justify-center gap-2 px-4 py-2 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-[#991B1B] rounded-lg transition-colors"
+                      >
+                        <Camera className="w-4 h-4" />
+                        <span>重新上傳 Day {day} 照片</span>
+                      </button>
+                      <button
+                        type="button"
+                        disabled={deletingId === rejectedSub.id}
+                        onClick={async () => {
+                          setDeletingId(rejectedSub.id);
+                          try {
+                            await onDeleteSubmission(rejectedSub);
+                          } finally {
+                            setDeletingId(null);
+                          }
+                        }}
+                        aria-label={`刪除 Day ${day} 無效紀錄`}
+                        className="p-2 text-[#6B7280] hover:text-[#B91C1C] rounded-md transition-colors disabled:opacity-50"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </>
                   ) : (
                     <button
                       type="button"
@@ -325,6 +447,72 @@ export function StickerCheckinView({
           })}
         </div>
       </section>
+
+      {/* Replace photo warning confirmation modal */}
+      {confirmReplaceDay !== null && mySubmissionsByDay[confirmReplaceDay] && (
+        <div
+          role="dialog"
+          aria-modal="true"
+          aria-label="更換照片時間重算提醒"
+          className="fixed inset-0 z-50 bg-black/50 backdrop-blur-xs flex items-center justify-center p-4"
+          onClick={() => setConfirmReplaceDay(null)}
+        >
+          <div
+            className="bg-white border border-[#E5EAE7] rounded-xl max-w-md w-full shadow-lg overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-5 py-4 border-b border-[#E5EAE7] flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <AlertTriangle className="w-5 h-5 text-[#D97706]" />
+                <h3 className="text-base font-bold text-[#111827]">
+                  更換照片提醒
+                </h3>
+              </div>
+              <button
+                type="button"
+                onClick={() => setConfirmReplaceDay(null)}
+                aria-label="關閉提醒"
+                className="p-1.5 text-[#526058] hover:text-[#111827] rounded-lg hover:bg-[#F3F6F4]"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="p-5 space-y-3 text-sm text-[#374151] leading-relaxed">
+              <p>
+                您正準備更換{' '}
+                <strong className="text-[#111827]">
+                  Day {confirmReplaceDay}
+                </strong>{' '}
+                的貼紙照片。
+              </p>
+              <div className="p-3 rounded-lg bg-[#FFFBEB] border border-[#FDE68A] text-xs text-[#92400E] leading-relaxed">
+                <strong>注意：</strong>
+                若更換照片，系統將會把上傳時間更新為<strong>「最新送出時間」</strong>，並重新計算當日排名與前 {config.topN} 名速報加碼資格（原本的打卡時間將被覆蓋；若只是修改留言而未換照片則不受影響）。
+              </div>
+            </div>
+            <div className="px-5 py-3.5 border-t border-[#E5EAE7] flex items-center justify-end gap-2.5 bg-[#F7FAF8]">
+              <button
+                type="button"
+                onClick={() => setConfirmReplaceDay(null)}
+                className="px-4 py-2 text-xs font-semibold text-[#4B5563] bg-white border border-[#D1DDD6] hover:bg-[#F8FBF9] rounded-lg"
+              >
+                取消
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const targetDay = confirmReplaceDay;
+                  setConfirmReplaceDay(null);
+                  onOpenUpload(targetDay, mySubmissionsByDay[targetDay]);
+                }}
+                className="px-4 py-2 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-[#991B1B] rounded-lg"
+              >
+                了解，前往更換照片
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

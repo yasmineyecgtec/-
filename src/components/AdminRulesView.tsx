@@ -27,6 +27,7 @@ import {
 } from '../types';
 import {
   formatEventSubtitle,
+  formatTimestamp,
   getOfficeHints,
   resolveSubmissionOffice,
   syncSubtitleWithBonus,
@@ -80,7 +81,13 @@ export function AdminRulesView({
   onRevokeCoAdmin,
 }: AdminRulesViewProps) {
   const [hintOffice, setHintOffice] = useState<OfficeId>(userOffice);
-  const [modOfficeFilter, setModOfficeFilter] = useState<OfficeId | 'all'>('all');
+  const [modOffice, setModOffice] = useState<OfficeId>(userOffice);
+  const [modStatusFilter, setModStatusFilter] = useState<
+    'all' | 'valid' | 'rejected'
+  >('all');
+  const [modDayFilter, setModDayFilter] = useState<number | 'all'>('all');
+  const [previewModSub, setPreviewModSub] =
+    useState<StickerSubmission | null>(null);
 
   const [title, setTitle] = useState(config.title);
   const [subtitle, setSubtitle] = useState(() => formatEventSubtitle(config));
@@ -122,6 +129,7 @@ export function AdminRulesView({
 
   useEffect(() => {
     setHintOffice(userOffice);
+    setModOffice(userOffice);
   }, [userOffice]);
 
   useEffect(() => {
@@ -143,10 +151,45 @@ export function AdminRulesView({
 
   const displayedHints = getOfficeHints(config, hintOffice);
 
-  const filteredModSubmissions = allSubmissions.filter((sub) => {
-    if (modOfficeFilter === 'all') return true;
-    return resolveSubmissionOffice(sub) === modOfficeFilter;
-  });
+  const modCountsByOffice = useMemo(() => {
+    const counts: Record<
+      OfficeId,
+      { total: number; valid: number; rejected: number }
+    > = {
+      taipei: { total: 0, valid: 0, rejected: 0 },
+      hsinchu: { total: 0, valid: 0, rejected: 0 },
+    };
+    for (const sub of allSubmissions) {
+      const office = resolveSubmissionOffice(sub);
+      counts[office].total += 1;
+      if (sub.status === 'rejected') {
+        counts[office].rejected += 1;
+      } else {
+        counts[office].valid += 1;
+      }
+    }
+    return counts;
+  }, [allSubmissions]);
+
+  const filteredModSubmissions = useMemo(() => {
+    return allSubmissions
+      .filter((sub) => {
+        if (resolveSubmissionOffice(sub) !== modOffice) return false;
+        if (modStatusFilter !== 'all' && sub.status !== modStatusFilter) {
+          return false;
+        }
+        if (modDayFilter !== 'all' && sub.stickerDay !== modDayFilter) {
+          return false;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        const aMs = a.createdAt ? a.createdAt.toMillis() : 0;
+        const bMs = b.createdAt ? b.createdAt.toMillis() : 0;
+        if (bMs !== aMs) return bMs - aMs;
+        return a.stickerDay - b.stickerDay;
+      });
+  }, [allSubmissions, modOffice, modStatusFilter, modDayFilter]);
 
   const userByUid = useMemo(() => {
     const map = new Map<string, UserProfile>();
@@ -953,90 +996,170 @@ export function AdminRulesView({
           </section>
 
           <section className="bg-white border border-[#E5EAE7] rounded-xl overflow-hidden">
-            <div className="p-5 border-b border-[#E5EAE7] flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-              <div>
-                <h2 className="text-base font-semibold text-[#111827]">
-                  上傳紀錄審核清單（共 {filteredModSubmissions.length} 筆）
-                </h2>
-                <p className="text-xs text-[#6B7280] mt-0.5">
-                  可將誤傳或無效的照片標記為「已駁回」，駁回後不計入該區排行榜總分。
-                </p>
+            <div className="p-5 border-b border-[#E5EAE7] space-y-4">
+              <div className="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                <div>
+                  <h2 className="text-base font-semibold text-[#111827]">
+                    上傳紀錄審核清單 · {OFFICE_LABELS[modOffice]}（共{' '}
+                    {modCountsByOffice[modOffice].total} 筆）
+                  </h2>
+                  <p className="text-xs text-[#6B7280] mt-0.5">
+                    台北與新竹分開審核，系統已自動預設顯示您所屬的{OFFICE_LABELS[userOffice]}清單；點擊縮圖可放大檢查原圖。
+                  </p>
+                </div>
+
+                {/* Separated Taipei / Hsinchu Office Switcher */}
+                <div className="inline-flex items-center p-1 bg-[#F3F6F4] rounded-lg self-start">
+                  {(['taipei', 'hsinchu'] as OfficeId[]).map((officeKey) => {
+                    const active = modOffice === officeKey;
+                    const count = modCountsByOffice[officeKey].total;
+                    return (
+                      <button
+                        key={officeKey}
+                        type="button"
+                        onClick={() => setModOffice(officeKey)}
+                        className={`px-3.5 py-1.5 text-xs font-semibold rounded-md transition-colors whitespace-nowrap shrink-0 font-mono-num ${
+                          active
+                            ? 'bg-[#155E3A] text-white'
+                            : 'text-[#526058] hover:text-[#111827]'
+                        }`}
+                      >
+                        {OFFICE_LABELS[officeKey]}（{count}）
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
 
-              <div className="inline-flex items-center p-1 bg-[#F3F6F4] rounded-lg self-start">
-                <button
-                  type="button"
-                  onClick={() => setModOfficeFilter('all')}
-                  className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                    modOfficeFilter === 'all'
-                      ? 'bg-white text-[#155E3A] shadow-xs'
-                      : 'text-[#526058]'
-                  }`}
-                >
-                  全部
-                </button>
-                {(['taipei', 'hsinchu'] as OfficeId[]).map((officeKey) => (
+              {/* Status & Day sub-filters scoped to selected office */}
+              <div className="flex flex-wrap items-center justify-between gap-3 pt-3 border-t border-[#E5EAE7]">
+                <div className="inline-flex items-center gap-1.5 flex-wrap">
+                  {(
+                    [
+                      {
+                        key: 'all',
+                        label: `全部（${modCountsByOffice[modOffice].total}）`,
+                      },
+                      {
+                        key: 'valid',
+                        label: `有效計分（${modCountsByOffice[modOffice].valid}）`,
+                      },
+                      {
+                        key: 'rejected',
+                        label: `已駁回（${modCountsByOffice[modOffice].rejected}）`,
+                      },
+                    ] as const
+                  ).map((item) => (
+                    <button
+                      key={item.key}
+                      type="button"
+                      onClick={() => setModStatusFilter(item.key)}
+                      className={`px-3 py-1 text-xs font-semibold rounded-md border transition-colors font-mono-num ${
+                        modStatusFilter === item.key
+                          ? 'bg-[#F2F8F4] text-[#155E3A] border-[#155E3A]/40'
+                          : 'bg-white text-[#526058] border-[#E5EAE7] hover:bg-[#F8FBF9]'
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center gap-1.5 overflow-x-auto">
                   <button
-                    key={officeKey}
                     type="button"
-                    onClick={() => setModOfficeFilter(officeKey)}
-                    className={`px-3 py-1 text-xs font-semibold rounded-md transition-colors ${
-                      modOfficeFilter === officeKey
-                        ? 'bg-white text-[#155E3A] shadow-xs'
-                        : 'text-[#526058]'
+                    onClick={() => setModDayFilter('all')}
+                    className={`px-2.5 py-1 text-xs font-semibold rounded-md transition-colors whitespace-nowrap ${
+                      modDayFilter === 'all'
+                        ? 'bg-[#155E3A] text-white'
+                        : 'bg-[#F3F6F4] text-[#4B5563] hover:bg-[#E5EAE7]'
                     }`}
                   >
-                    {OFFICE_SHORT_LABELS[officeKey]}
+                    全部天數
                   </button>
-                ))}
+                  {Array.from({ length: TOTAL_STICKERS }, (_, idx) => {
+                    const day = idx + 1;
+                    return (
+                      <button
+                        key={day}
+                        type="button"
+                        onClick={() => setModDayFilter(day)}
+                        className={`px-2.5 py-1 text-xs font-semibold rounded-md font-mono-num transition-colors whitespace-nowrap ${
+                          modDayFilter === day
+                            ? 'bg-[#155E3A] text-white'
+                            : 'bg-[#F3F6F4] text-[#4B5563] hover:bg-[#E5EAE7]'
+                        }`}
+                      >
+                        Day {day}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
 
             {filteredModSubmissions.length === 0 ? (
               <div className="p-8 text-center text-sm text-[#6B7280]">
-                尚無符合條件的上傳紀錄。
+                {OFFICE_LABELS[modOffice]}目前沒有符合篩選條件的上傳紀錄。
               </div>
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse text-sm">
                   <thead>
                     <tr className="border-b border-[#E5EAE7] bg-[#F7FAF8] text-xs font-semibold text-[#155E3A]">
-                      <th className="py-3 px-4">辦公室</th>
                       <th className="py-3 px-4">日期</th>
                       <th className="py-3 px-4">照片</th>
                       <th className="py-3 px-4">參賽名稱</th>
+                      <th className="py-3 px-4">上傳時間</th>
                       <th className="py-3 px-4">狀態</th>
                       <th className="py-3 px-4 text-right">管理操作</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-[#E5EAE7]">
                     {filteredModSubmissions.map((sub) => {
-                      const subOffice = resolveSubmissionOffice(sub);
+                      const createdMs = sub.createdAt
+                        ? sub.createdAt.toMillis()
+                        : 0;
                       return (
                         <tr key={sub.id} className="hover:bg-[#F8FBF9]">
-                          <td className="py-3 px-4 text-xs font-semibold text-[#111827]">
-                            {OFFICE_SHORT_LABELS[subOffice]}
-                          </td>
-                          <td className="py-3 px-4 font-mono-num text-[#111827]">
+                          <td className="py-3 px-4 font-mono-num font-semibold text-[#111827] whitespace-nowrap">
                             Day {sub.stickerDay}
                           </td>
                           <td className="py-3 px-4">
-                            <img
-                              src={sub.imageDataUrl}
-                              alt={sub.authorName}
-                              referrerPolicy="no-referrer"
-                              className="w-12 h-9 object-cover rounded-md border border-[#E5EAE7]"
-                            />
+                            <button
+                              type="button"
+                              onClick={() => setPreviewModSub(sub)}
+                              title="點擊放大檢視照片"
+                              className="block rounded-md overflow-hidden border border-[#E5EAE7] hover:border-[#155E3A] transition-colors"
+                            >
+                              <img
+                                src={sub.imageDataUrl}
+                                alt={sub.authorName}
+                                referrerPolicy="no-referrer"
+                                className="w-14 h-10 object-cover"
+                              />
+                            </button>
                           </td>
                           <td className="py-3 px-4">
-                            <span className="font-semibold text-[#111827]">
+                            <div className="font-semibold text-[#111827]">
                               {sub.authorName}
-                            </span>
-                            {sub.isProxy && (
-                              <span className="ml-2 text-xs text-[#6B7280]">
-                                (代傳)
-                              </span>
+                              {sub.isProxy && (
+                                <span className="ml-2 text-xs font-normal text-[#6B7280]">
+                                  (代傳)
+                                </span>
+                              )}
+                            </div>
+                            {sub.note && (
+                              <p
+                                title={sub.note}
+                                className="text-[11px] text-[#6B7280] mt-0.5 max-w-[200px] truncate"
+                              >
+                                留言：{sub.note}
+                              </p>
                             )}
+                          </td>
+                          <td className="py-3 px-4 font-mono-num text-xs text-[#6B7280] whitespace-nowrap">
+                            {createdMs ? formatTimestamp(createdMs) : '—'}
                           </td>
                           <td className="py-3 px-4">
                             <span
@@ -1057,7 +1180,7 @@ export function AdminRulesView({
                               </p>
                             )}
                           </td>
-                          <td className="py-3 px-4 text-right space-x-2">
+                          <td className="py-3 px-4 text-right space-x-2 whitespace-nowrap">
                             <button
                               type="button"
                               onClick={() => {
@@ -1090,6 +1213,96 @@ export function AdminRulesView({
               </div>
             )}
           </section>
+
+          {/* Admin full-size photo inspection modal */}
+          {previewModSub && (
+            <div
+              role="dialog"
+              aria-modal="true"
+              aria-label="管理員審核照片預覽"
+              className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4"
+              onClick={() => setPreviewModSub(null)}
+            >
+              <div
+                className="bg-white border border-[#E5EAE7] rounded-xl max-w-xl w-full overflow-hidden shadow-lg"
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="px-5 py-4 border-b border-[#E5EAE7] flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-bold text-[#111827]">
+                      {OFFICE_LABELS[resolveSubmissionOffice(previewModSub)]} ·{' '}
+                      {previewModSub.authorName}
+                    </h3>
+                    <p className="text-xs text-[#6B7280] mt-0.5 font-mono-num">
+                      Day {previewModSub.stickerDay} ·{' '}
+                      {config.stickerNames[previewModSub.stickerDay - 1] || ''}
+                      {previewModSub.createdAt
+                        ? ` · ${formatTimestamp(previewModSub.createdAt.toMillis())}`
+                        : ''}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setPreviewModSub(null)}
+                    aria-label="關閉預覽"
+                    className="p-1.5 text-[#526058] hover:text-[#111827] rounded-lg hover:bg-[#F3F6F4]"
+                  >
+                    <X className="w-5 h-5" />
+                  </button>
+                </div>
+                <div className="bg-[#F7FAF8] p-4 flex items-center justify-center max-h-[60vh] overflow-hidden">
+                  <img
+                    src={previewModSub.imageDataUrl}
+                    alt={`${previewModSub.authorName} Day ${previewModSub.stickerDay}`}
+                    referrerPolicy="no-referrer"
+                    className="max-h-[56vh] w-auto object-contain rounded-lg"
+                  />
+                </div>
+                <div className="px-5 py-3.5 border-t border-[#E5EAE7] flex flex-wrap items-center justify-between gap-3 bg-white">
+                  <span
+                    className={`text-xs font-semibold ${
+                      previewModSub.status === 'valid'
+                        ? 'text-[#155E3A]'
+                        : 'text-[#B91C1C]'
+                    }`}
+                  >
+                    目前狀態：
+                    {previewModSub.status === 'valid'
+                      ? '有效計分'
+                      : `已駁回（${previewModSub.rejectionReason || '未填寫原因'}）`}
+                  </span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const target = previewModSub;
+                        setPreviewModSub(null);
+                        if (target.status === 'valid') {
+                          setRejectTargetSub(target);
+                          setRejectReason('');
+                          setRejectError(null);
+                        } else {
+                          void onToggleSubmissionStatus(target, 'valid', '');
+                        }
+                      }}
+                      className="px-3.5 py-1.5 text-xs font-semibold text-white bg-[#B91C1C] hover:bg-[#991B1B] rounded-lg"
+                    >
+                      {previewModSub.status === 'valid'
+                        ? '設為無效並填寫原因'
+                        : '恢復為有效計分'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setPreviewModSub(null)}
+                      className="px-3.5 py-1.5 text-xs font-semibold text-[#4B5563] bg-white border border-[#D1DDD6] hover:bg-[#F8FBF9] rounded-lg"
+                    >
+                      關閉
+                    </button>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
 
           {/* Rejection reason modal */}
           {rejectTargetSub && (

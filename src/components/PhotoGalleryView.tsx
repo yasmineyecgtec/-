@@ -192,14 +192,14 @@ export function PhotoGalleryView({
                       referrerPolicy="no-referrer"
                       className={`w-full h-full object-cover transition-transform duration-200 ${
                         isBlurred
-                          ? 'blur-2xl scale-110 select-none pointer-events-none'
+                          ? 'blur-[10px] scale-105 select-none pointer-events-none'
                           : 'group-hover:scale-105'
                       }`}
                     />
 
                     {isBlurred && (
-                      <div className="absolute inset-0 bg-black/35 flex flex-col items-center justify-center text-white px-4 text-center">
-                        <div className="w-9 h-9 rounded-full bg-black/55 border border-white/25 flex items-center justify-center mb-2">
+                      <div className="absolute inset-0 bg-black/30 flex flex-col items-center justify-center text-white px-4 text-center">
+                        <div className="w-9 h-9 rounded-full bg-black/50 border border-white/25 flex items-center justify-center mb-2">
                           <Lock className="w-4 h-4 text-white" />
                         </div>
                         <p className="text-xs font-bold">

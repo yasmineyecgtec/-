@@ -458,12 +458,12 @@ export function LeaderboardView({
                                               referrerPolicy="no-referrer"
                                               className={`w-full h-full object-cover transition-transform duration-200 ${
                                                 subBlurred
-                                                  ? 'blur-xl scale-110 select-none pointer-events-none'
+                                                  ? 'blur-[7px] scale-105 select-none pointer-events-none'
                                                   : 'group-hover:scale-105'
                                               }`}
                                             />
                                             {subBlurred && (
-                                              <span className="absolute inset-0 bg-black/30 flex items-center justify-center text-[10px] font-semibold text-white">
+                                              <span className="absolute inset-0 bg-black/25 flex items-center justify-center text-[10px] font-semibold text-white">
                                                 隔日解鎖
                                               </span>
                                             )}
@@ -562,7 +562,7 @@ export function LeaderboardView({
                               sub.createdAtMs,
                               config.eventStartDate
                             ).unlocked
-                              ? 'blur-md scale-110 select-none pointer-events-none'
+                              ? 'blur-[5px] scale-105 select-none pointer-events-none'
                               : ''
                           }`}
                         />
